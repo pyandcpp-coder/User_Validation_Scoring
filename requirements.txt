@@ -1,0 +1,5 @@
+weaviate-client
+transformers
+torch
+Pillow
+sentence-transformers
