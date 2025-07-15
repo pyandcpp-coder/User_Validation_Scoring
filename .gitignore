@@ -1,1 +1,6 @@
 venv/
+__pycache__/
+uploads/
+ok.png
+test_image.png
+test_image3.png

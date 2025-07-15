@@ -3,3 +3,6 @@ transformers
 torch
 Pillow
 sentence-transformers
+langdetect
+flask
+
