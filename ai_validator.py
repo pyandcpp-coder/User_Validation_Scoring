@@ -204,8 +204,6 @@ class ContentValidator:
                 elif 'toxic-bert' in str(gibberish_classifier.model.config._name_or_path):
                     if result['label'] == 'TOXIC' and result['score'] > 0.8:
                         return True
-                
-                # Generic handling for other models
                 elif result['score'] > 0.8:
                     return True
             
@@ -220,7 +218,7 @@ class ContentValidator:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode('utf-8')
 
-    def check_for_duplicates(self, text_content: str, image_path: str, threshold: float = 0.3) -> dict | None:
+    def check_for_duplicates(self, text_content: str, image_path: str, threshold: float = 0.15) -> dict | None:
         """
         Checks for duplicate or very similar content in Weaviate before insertion.
         
@@ -386,6 +384,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Error during execution: {e}")
     finally:
-        # Always close the connection
         if validator:
             validator.close()
