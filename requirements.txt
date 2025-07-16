@@ -5,4 +5,9 @@ Pillow
 sentence-transformers
 langdetect
 flask
-
+fastapi
+uvicorn[standard]
+python-multipart
+psycopg2-binary
+celery
+redis

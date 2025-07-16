@@ -1,3 +1,26 @@
+# services:
+#   weaviate:
+#     image: cr.weaviate.io/semitechnologies/weaviate:1.24.1
+#     restart: on-failure:0
+#     ports:
+#      - "8080:8080"
+#      - "50051:50051"
+#     environment:
+#       CLIP_INFERENCE_API: 'http://multi2vec-clip:8080'
+#       QUERY_DEFAULTS_LIMIT: 25
+#       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+#       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+#       DEFAULT_VECTORIZER_MODULE: 'multi2vec-clip'
+#       ENABLE_MODULES: 'multi2vec-clip'
+#       CLUSTER_HOSTNAME: 'node1'
+#   multi2vec-clip:
+#     image: cr.weaviate.io/semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32
+#     restart: on-failure:0
+#     environment:
+#       ENABLE_CUDA: '0' # Set to 1 if you have a GPU
+
+version: '3.8'
+
 services:
   weaviate:
     image: cr.weaviate.io/semitechnologies/weaviate:1.24.1
@@ -13,8 +36,34 @@ services:
       DEFAULT_VECTORIZER_MODULE: 'multi2vec-clip'
       ENABLE_MODULES: 'multi2vec-clip'
       CLUSTER_HOSTNAME: 'node1'
+
   multi2vec-clip:
+    # image: cr.weaviate.io/semitechnologies/multi2vec-clip:en_vision-transformers-clip-ViT-B-32
     image: cr.weaviate.io/semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32
+
     restart: on-failure:0
     environment:
-      ENABLE_CUDA: '0' # Set to 1 if you have a GPU
+      ENABLE_CUDA: '0'
+
+  # NEW: PostgreSQL Database
+  postgres:
+    image: postgres:15
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: scoring_user
+      POSTGRES_PASSWORD: scoring_password
+      POSTGRES_DB: scoring_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # NEW: Redis for Caching and Task Queue
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

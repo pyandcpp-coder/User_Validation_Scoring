@@ -1,41 +1,73 @@
 from scoring_engine import ScoringEngine
-import time
+from ai_validator import ContentValidator
+from PIL import Image
 
+print("Initializing AI Validator...")
+validator = ContentValidator()
+print("Initializing Scoring Engine...")
 engine = ScoringEngine()
 
-USER_ID = "user-alpha-007"
+USER_ID = "user-qualitative-001"
 
+# Create some dummy images for testing
+Image.new('RGB', (100, 80), color = 'blue').save('ocean_pic.png')
+Image.new('RGB', (100, 80), color = 'green').save('forest_pic.png')
 
-print("--- Day 1: Registration ---")
-engine.add_registration_points(USER_ID)
-engine.get_final_score(USER_ID)
-# Note: At this point, the final score is 0 because one-time points are a bonus,
-# they don't contribute to the 0-100 monthly activity scale.
+# --- SIMULATION FUNCTION ---
+def simulate_user_post(user_id, text_content, image_path):
+    print(f"\n{'='*20} SIMULATING NEW POST {'='*20}")
+    print(f"User: {user_id} | Text: '{text_content}'")
 
-print("\n--- Day 2: User gets 5 likes and posts once ---")
-# Let's assume your app validated 5 likes and sent them to the engine
-for _ in range(5):
-    engine.add_like_points(USER_ID)
+    # 1. The application's backend calls the ContentValidator first.
+    validation_result = validator.process_new_post(user_id, text_content, image_path)
+
+    # 2. Check the result from the validator
+    if validation_result:
+        # The post is valid! The validator returns the ID and originality score.
+        post_id, originality_distance = validation_result
+        print(f"VALIDATION PASSED. Post ID: {post_id}, Originality Distance: {originality_distance:.4f}")
+
+        # 3. The application now calls the ScoringEngine to award points.
+        engine.add_qualitative_post_points(
+            user_id=user_id,
+            text_content=text_content,
+            image_path=image_path,
+            originality_distance=originality_distance
+        )
+    else:
+        # The post was rejected by the validator.
+        print("VALIDATION FAILED. No points awarded.")
+
+    # 4. Finally, get the user's updated total score.
+    engine.get_final_score(user_id)
+
+# --- EXECUTION BLOCK ---
+# This condition is now correct and will run the code below.
+if __name__ == "__main__":
+    print("\n\n--- STARTING QUALITATIVE SCORING SIMULATION ---")
+    print("Ensure your Ollama and Weaviate services are running.")
     
-# The user's post is validated by the AI service, so we award points
-# (Your app would have called the AI API first and gotten an "approved" status)
-engine.add_post_points(USER_ID)
-engine.get_final_score(USER_ID)
+    # --- Test Case 1: A high-effort, original post ---
+    simulate_user_post(
+        user_id=USER_ID,
+        text_content="Just returned from a breathtaking trip to the coast. The deep blue of the ocean was mesmerizing and the sunsets were unforgettable.",
+        image_path="ocean_pic.png"
+    )
 
-print(f"\n--- Day 5: User posts 60 more times to hit the monthly cap ---")
-for i in range(60):
-    print(f"Simulating post {i+2}:")
-    engine.add_post_points(USER_ID)
-engine.get_final_score(USER_ID)
+    # --- Test Case 2: A low-effort post ---
+    simulate_user_post(
+        user_id=USER_ID,
+        text_content="a tree",
+        image_path="forest_pic.png"
+    )
 
-
-print("\n--- Day 10: User tries to add another like (should be at cap) ---")
-# Simulate adding likes until the cap is hit
-# User already has 0.5 points from 5 likes. Max is 15. So 14.5 more points to go.
-# At 0.1 points/like, that's 145 more likes.
-for _ in range(145):
-    engine.add_like_points(USER_ID)
+    # --- Test Case 3: A duplicate post ---
+    simulate_user_post(
+        user_id=USER_ID,
+        text_content="Just returned from a breathtaking trip to the coast. The deep blue of the ocean was mesmerizing and the sunsets were unforgettable.",
+        image_path="ocean_pic.png"
+    )
     
-print("--- Attempting one more like ---")
-engine.add_like_points(USER_ID) # This one should be rejected
-engine.get_final_score(USER_ID)
+    print("\n--- SIMULATION COMPLETE ---")
+    # Close the validator's connection when done to prevent resource warnings.
+    validator.close()

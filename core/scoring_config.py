@@ -20,10 +20,6 @@ MAX_MONTHLY_TIPPING_POINTS = 20
 POINTS_FOR_WEEKLY_LEADER = 3
 POINTS_FOR_MONTHLY_LEADER = 3
 
-
-# This is the sum of all *regular monthly activities*.
-# It's the "perfect score" we will use to scale to 100.
-# One-time points and leaderboard bonuses are treated as "extra credit" on top.
 TOTAL_POSSIBLE_MONTHLY_POINTS = (
     MAX_MONTHLY_POST_POINTS +
     MAX_MONTHLY_LIKE_POINTS +
@@ -31,4 +27,3 @@ TOTAL_POSSIBLE_MONTHLY_POINTS = (
     MAX_MONTHLY_REFERRAL_POINTS +
     MAX_MONTHLY_TIPPING_POINTS
 )
-# TOTAL = 30 + 15 + 15 + 10 + 20 = 90

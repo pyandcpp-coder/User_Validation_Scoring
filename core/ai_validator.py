@@ -9,7 +9,7 @@ import string
 from collections import Counter
 from weaviate.classes.config import Configure, Property, DataType
 from weaviate.classes.data import DataObject
-
+from core.ollama_scorer import OllamaQualityScorer
 try:
     gibberish_classifier = pipeline(
         "text-classification", 
@@ -218,7 +218,7 @@ class ContentValidator:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode('utf-8')
 
-    def check_for_duplicates(self, text_content: str, image_path: str, threshold: float = 0.15) -> dict | None:
+    def check_for_duplicates(self, text_content: str, image_path: str, threshold: float = 0.26) -> dict | None:
         """
         Checks for duplicate or very similar content in Weaviate before insertion.
         
@@ -237,42 +237,30 @@ class ContentValidator:
             posts_collection = self.client.collections.get("Post")
 
             # Use near_text for similarity search
-            text_response = posts_collection.query.near_text(
+            response = posts_collection.query.near_text(
                 query=text_content,
                 limit=3,
                 return_metadata=["distance"]
             )
-            
-            if not text_response.objects:
-                print("No similar posts found in the database.")
-                return None 
+            if not response.objects:
+                return (False, 1.0) # No duplicates, and maximum possible distance
 
-            most_similar_post = text_response.objects[0]
+            most_similar_post = response.objects[0]
             similarity_distance = most_similar_post.metadata.distance
-            similarity_percentage = (1 - similarity_distance) * 100
-            
-            print(f"Most similar post found with distance: {similarity_distance:.4f} (similarity: {similarity_percentage:.1f}%)")
 
-            # Lower distance means higher similarity - if distance is below threshold, it's a duplicate
             if similarity_distance < threshold:
-                print(f"DUPLICATE DETECTED! Distance ({similarity_distance:.4f}) is below threshold ({threshold}).")
-                print(f"This indicates {similarity_percentage:.1f}% similarity.")
-                return {
-                    "duplicate_id": most_similar_post.uuid,
-                    "distance": similarity_distance,
-                    "similarity_percentage": similarity_percentage
-                }
+                print(f"DUPLICATE DETECTED! Distance: {similarity_distance:.4f}")
+                return (True, similarity_distance) # It's a duplicate
             
-            print(f"Post appears to be original (similarity: {similarity_percentage:.1f}% < {(1-threshold)*100:.1f}% threshold).")
-            return None
-            
+            print(f"Post appears original. Distance: {similarity_distance:.4f}")
+            return (False, similarity_distance) # Not a duplicate
         except Exception as e:
             print(f"Error during duplicate check: {e}")
-            return None
-
-    def process_new_post(self, user_id: str, text_content: str, image_path: str) -> str | None:
+            
+    def process_new_post(self, user_id: str, text_content: str, image_path: str) -> tuple[str, float] | None:
         """
         Main pipeline function for processing and validating a new post.
+        If successful, it returns the new post's UUID and its originality distance.
         """
         print(f"\n--- Processing new post for user: {user_id} ---")
         
@@ -282,9 +270,9 @@ class ContentValidator:
             return None
         
         # 2. Duplicate Check
-        duplicate_info = self.check_for_duplicates(text_content, image_path)
-        if duplicate_info:
-            print(f"Post rejected: Content is a duplicate of {duplicate_info['duplicate_id']} with {duplicate_info['similarity_percentage']:.1f}% similarity.")
+        is_duplicate, distance = self.check_for_duplicates(text_content, image_path)
+        if is_duplicate:
+            print(f"Post rejected: Content is a duplicate (distance: {distance:.4f}).")
             return None
             
         # 3. If all checks pass, add to Database
@@ -294,29 +282,31 @@ class ContentValidator:
             image_b64 = self._image_to_base64(image_path)
             posts_collection = self.client.collections.get("Post")
             
+            post_uuid = uuid.uuid4()
             post_object = {
                 "content": text_content,
                 "image": image_b64,
                 "user_id": user_id
             }
 
-            new_uuid = posts_collection.data.insert(
+            posts_collection.data.insert(
                 properties=post_object,
-                uuid=uuid.uuid4()
+                uuid=post_uuid
             )
             
-            print(f"Successfully added post to Weaviate with UUID: {new_uuid}")
-            return str(new_uuid)
+            new_uuid_str = str(post_uuid)
+            print(f"Successfully added post to Weaviate with UUID: {new_uuid_str}")
+            # Return the new UUID and the calculated originality distance
+            return (new_uuid_str, distance)
             
         except Exception as e:
             print(f"Error adding post to Weaviate: {e}")
             return None
-
     def close(self):
-        """Close the Weaviate connection to avoid resource warnings."""
+        """Closes the connection to the Weaviate client."""
+        print("Closing Weaviate connection...")
         if hasattr(self, 'client'):
             self.client.close()
-
 if __name__ == '__main__':
     validator = None
     try:
