@@ -168,32 +168,6 @@ Use the `run_all_tests.py` script for a comprehensive test of all features.
 -   **Text-Only Post Test:** You will get a `202 Accepted` response. The webhook will receive a success JSON with a moderate `significanceScore` (e.g., ~1.0).
 -   **Duplicate Post Test:** You will get a `202 Accepted` response. The webhook will receive a **failure** JSON with `aiAgentResponseApproved: false`.
 
-## Workflow Diagram Prompt
-
-You can give the following prompt to an LLM capable of generating diagrams (like one with Mermaid or Graphviz support) to visualize the architecture:
-
-> Create a sequence diagram that illustrates the workflow of an intelligent scoring service. There are two main scenarios.
->
-> **Scenario 1: Asynchronous Post Submission**
-> 1. A `Client` sends a `POST` request with JSON data and an optional image file to the `/v1/submit_post` endpoint on the `FastAPI Server`.
-> 2. The `FastAPI Server` immediately places a job onto a `Redis Queue` and instantly returns a `202 Accepted` response to the `Client`.
-> 3. A `Celery Worker` picks up the job from the `Redis Queue`.
-> 4. The `Celery Worker` calls the `ContentValidator` to check for gibberish and duplicates.
-> 5. The `ContentValidator` sends a query to the `Weaviate DB` to check for similar posts.
-> 6. The `Weaviate DB` returns the search results.
-> 7. If the content is valid, the `Celery Worker` calls the `OllamaQualityScorer`.
-> 8. The `OllamaQualityScorer` sends the content to the `Ollama LLM`.
-> 9. The `Ollama LLM` returns a quality score.
-> 10. The `Celery Worker` calls the `ScoringEngine` to award points.
-> 11. The `ScoringEngine` updates the user's score in the `PostgreSQL DB`.
-> 12. Finally, the `Celery Worker` sends a `POST` request containing the final `AIResponse` JSON to the `Webhook URL` provided by the client.
->
-> **Scenario 2: Synchronous Action**
-> 1. A `Client` sends a `POST` request with only JSON data to the `/v1/submit_action` endpoint on the `FastAPI Server`.
-> 2. The `FastAPI Server` calls the `ScoringEngine` directly.
-> 3. The `ScoringEngine` updates the user's score in the `PostgreSQL DB`.
-> 4. The `FastAPI Server` immediately returns a `200 OK` response containing the final `AIResponse` JSON to the `Client`.
-
 ## Future To-Do's & Improvements
 
 -   [ ] **Configuration Management:** Move all secrets (database passwords, etc.) and connection strings (`localhost`) into environment variables for production security and flexibility.
