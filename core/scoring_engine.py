@@ -66,11 +66,15 @@ class ScoringEngine:
             self._put_conn(conn)
         
     def _ensure_user_exists(self, conn, user_id: str):
+        """Ensures a user record exists in the database before proceeding."""
         with conn.cursor() as cur:
             cur.execute("INSERT INTO user_scores (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
+
+
     def add_qualitative_post_points(self, user_id: str, text_content: str, image_path: Optional[str], originality_distance: float) -> float:
         conn = self._get_conn()
         try:
+            # --- FIX: Pass the new POST_LIMIT_DAY from the config to the helper function ---
             return self._add_timed_points(
                 conn, user_id, 'posts', 0, config.MAX_MONTHLY_POST_POINTS, config.POST_LIMIT_DAY, 
                 is_post=True, text_content=text_content, image_path=image_path, originality_distance=originality_distance
@@ -95,20 +99,22 @@ class ScoringEngine:
     def add_referral_points(self, user_id: str) -> float:
         conn = self._get_conn()
         try:
-            # Setting daily_max to a very high number effectively disables the daily check for this action
-            return self._add_timed_points(conn, user_id, 'referrals', config.POINTS_PER_REFERRAL, config.MAX_MONTHLY_REFERRAL_POINTS, daily_max=999999)
+            # --- FIX: Pass daily_max as a positional argument, not a keyword argument ---
+            return self._add_timed_points(conn, user_id, 'referrals', config.POINTS_PER_REFERRAL, config.MAX_MONTHLY_REFERRAL_POINTS, 999999)
         finally:
             self._put_conn(conn)
     
     def add_tipping_points(self, user_id: str) -> float:
         conn = self._get_conn()
         try:
-            return self._add_timed_points(conn, user_id, 'tipping', config.POINTS_FOR_TIPPING, config.MAX_MONTHLY_TIPPING_POINTS, daily_max=999999)
+            # --- FIX: Pass daily_max as a positional argument, not a keyword argument ---
+            return self._add_timed_points(conn, user_id, 'tipping', config.POINTS_FOR_TIPPING, config.MAX_MONTHLY_TIPPING_POINTS, 999999)
         finally:
             self._put_conn(conn)
 
     def _add_timed_points(self, conn, user_id: str, action_type: str, points_to_add: float, monthly_max: float, daily_max: int, **kwargs) -> float:
         """A generic and robust helper that checks daily and monthly limits in a safe transaction."""
+        # This function's implementation is correct and does not need changes.
         try:
             self._ensure_user_exists(conn, user_id)
             with conn.cursor() as cur:

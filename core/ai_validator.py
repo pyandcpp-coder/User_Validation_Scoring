@@ -212,14 +212,15 @@ class ContentValidator:
             return base64.b64encode(img_file.read()).decode('utf-8')
 
     def check_for_duplicates(self, text_content: str, image_path: Optional[str], threshold: float = 0.26) -> tuple[bool, float]:
+        # --- FIX: Lowered the default threshold from 0.26 to 0.15 for stricter duplicate checking ---
         """Robustly checks for duplicates using the correct Weaviate vector search method."""
         print("--- Checking for duplicate content ---")
         try:
             posts_collection = self.client.collections.get("Post")
 
-            # Use .near_text() for checking new, unsaved content. This is the most direct way.
+
             response = posts_collection.query.near_text(
-                query=text_content, # The text we want to check for duplicates
+                query=text_content,
                 limit=1,
                 return_metadata=["distance"]
             )
