@@ -128,8 +128,10 @@ async def handle_post_submission(
         user_id=request_data.creatorAddress,
         text_content=request_data.Interaction.data or "",
         image_path=image_path,
-        webhook_url=request_data.webhookUrl
+        webhook_url=request_data.webhookUrl,
+        interactor_address=request_data.interactorAddress # Use snake_case
     )
+    
     
     print(f"API: Queued 'post' job for user {request_data.creatorAddress}. Webhook: {request_data.webhookUrl}")
     

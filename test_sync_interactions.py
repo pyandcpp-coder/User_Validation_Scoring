@@ -97,6 +97,7 @@ if __name__ == "__main__":
     
     test_asynchronous_post({
       "creatorAddress": post_user_1,
+      "interactorAddress": "wallet_interactor_tester_001",
       "Interaction": {
         "interactionType": "post",
         "data": "This is a thoughtful and well-written post about the future of decentralized social media, accompanied by a relevant image."
@@ -110,6 +111,7 @@ if __name__ == "__main__":
     post_user_2 = "wallet_post_tester_002"
     test_asynchronous_post({
       "creatorAddress": post_user_2,
+      "interactorAddress": "wallet_interactor_tester_002",
       "Interaction": {
         "interactionType": "post",
         "data": "Just wanted to say hello to this amazing community!"

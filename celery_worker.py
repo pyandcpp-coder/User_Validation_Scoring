@@ -28,17 +28,18 @@ def process_and_score_post_task(
     user_id: str,
     text_content: str,
     image_path: Optional[str],
-    webhook_url: str
+    webhook_url: str,
+    interactor_address: Optional[str] # **THE FIX:** Parameter name changed to snake_case
 ):
     """
     Background task that validates, scores, and sends the final result to a webhook.
     """
     print(f"WORKER: Received job for user {user_id}")
     
-    # Prepare the structure of the final JSON response
+    # **THE FIX:** Use the passed-in 'interactor_address' when building the response.
     ai_response = {
         "creatorAddress": user_id,
-        "interactorAddress": None, # You can populate this if needed
+        "interactorAddress": interactor_address, # Use the value from the function argument
         "post_id": None,
         "Interaction": {"interactionType": "post", "data": text_content},
         "validation": {
@@ -47,7 +48,6 @@ def process_and_score_post_task(
             "reason": "Processing started"
         }
     }
-
     validator = None
     engine = None
     try:
