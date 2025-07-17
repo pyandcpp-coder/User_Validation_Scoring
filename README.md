@@ -35,28 +35,6 @@ The core workflow is as follows:
 
 This architecture ensures the system is **scalable** (you can add more Celery workers to handle more load), **resilient** (the Redis queue ensures jobs aren't lost if a worker restarts), and **performant** (the user gets an instant response for slow tasks).
 
-## Project Structure
-/User_Scoring_Validation/
-|-- api/
-| |-- main.py # The main FastAPI server application with endpoint definitions.
-|
-|-- core/
-| |-- ai_validator.py # Class for gibberish & duplicate checks using Weaviate.
-| |-- ollama_scorer.py # Class for getting quality scores from the local LLM.
-| |-- scoring_config.py # Central configuration for all point values and limits.
-| |-- scoring_engine.py # Class for all scoring logic, backed by PostgreSQL.
-|
-|-- uploads/ # Temporary storage for uploaded images before processing.
-|
-|-- celery_worker.py # Defines the background task for processing posts.
-|-- clean_all_databases.py # Utility script to wipe Weaviate and PostgreSQL for clean tests.
-|-- docker-compose.yml # Defines and configures all production services (Postgres, Redis, Weaviate).
-|-- Dockerfile # Recipe to build a portable container image of the Python application.
-|-- requirements.txt # A list of all Python dependencies.
-|-- run_all_tests.py # Comprehensive script to test all API endpoints.
-|-- README.md # This documentation file.
-
-
 ## File-by-File Explanation
 
 -   **`api/main.py`**: This is the front door to the application. It uses the FastAPI framework to define two main endpoints: `/v1/submit_action` for fast, synchronous tasks and `/v1/submit_post` for slow, asynchronous tasks. It is responsible for receiving HTTP requests, validating the input using Pydantic models, and either processing the request directly or delegating it to the Celery worker.
