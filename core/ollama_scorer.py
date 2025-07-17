@@ -111,7 +111,7 @@ class OllamaQualityScorer:
         except requests.exceptions.RequestException:
             return False
 
-    def get_quality_score(self, text_content: str, image_path: str, max_retries: int = 3) -> int:
+    def get_quality_score(self, text_content: str, image_path: Optional[str], max_retries: int = 3) -> int:
         """
         Gets a quality score from the local Ollama multimodal LLM with improved error handling.
         """
@@ -133,93 +133,100 @@ class OllamaQualityScorer:
             print(f"ERROR: Failed to encode image: {e}")
             return 0
         
-        # IMPROVED PROMPT (One-Shot Prompting)
-        prompt = f"""
-        You are a meticulous Content Quality Analyst. Your task is to rate a user's post on a scale of 0 to 10 based on effort, creativity, and text-image relevance. You MUST respond with only a single number and nothing else.
+        if image_path:
+            prompt = f"""
+            You are a meticulous Content Quality Analyst...
+            Post Text: "{text_content}"
+            Image: [An image is provided]
+            Your Response:
+            """
+        else:
+            prompt = f"""
+            You are a meticulous Content Quality Analyst...
+            Post Text: "{text_content}"
+            Image: [No image provided]
+            Your Response:
+            """
 
-        Here is an example:
-        Post Text: "my vacation"
-        Image: [An image of a beach]
-        Your Response: 2
-
-        Now, analyze the following post:
-        Post Text: "{text_content}"
-        Image: [An image is provided]
-        Your Response:
-        """
-
+        # --- Prepare the Payload ---
         payload = {
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
-            "images": [image_b64]
         }
-
-        for attempt in range(max_retries):
+        # CORRECTED: Conditionally encode and add the image
+        if image_path:
             try:
-                print(f"Attempt {attempt + 1}/{max_retries}")
-                
-                # Longer timeout for vision models
-                response = requests.post(self.api_url, json=payload, timeout=120)
-                response.raise_for_status()
+                image_b64 = self._image_to_base64(image_path)
+                payload["images"] = [image_b64]
+            except Exception as e:
+                print(f"ERROR: Failed to encode image: {e}")
+                return 0 # Return 0 if image is invalid
+            for attempt in range(max_retries):
+                try:
+                    print(f"Attempt {attempt + 1}/{max_retries}")
+                    
+                    # Longer timeout for vision models
+                    response = requests.post(self.api_url, json=payload, timeout=120)
+                    response.raise_for_status()
 
-                response_json = response.json()
-                score_text = response_json.get('response', '0').strip()
-                
-                # Extract number from response
-                import re
-                match = re.search(r'\d+', score_text)
-                if match:
-                    score = int(match.group(0))
-                    print(f"Ollama response: '{score_text}', Extracted score: {score}")
-                    return min(10, max(0, score))
-                else:
-                    print(f"Warning: Could not parse a number from Ollama response: '{score_text}'")
+                    response_json = response.json()
+                    score_text = response_json.get('response', '0').strip()
+                    
+                    # Extract number from response
+                    import re
+                    match = re.search(r'\d+', score_text)
+                    if match:
+                        score = int(match.group(0))
+                        print(f"Ollama response: '{score_text}', Extracted score: {score}")
+                        return min(10, max(0, score))
+                    else:
+                        print(f"Warning: Could not parse a number from Ollama response: '{score_text}'")
+                        if attempt < max_retries - 1:
+                            print("Retrying...")
+                            time.sleep(2)
+                            continue
+                        return 0
+
+                except requests.exceptions.Timeout:
+                    print(f"ERROR: Request timed out (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        print("Retrying with longer timeout...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print("All retry attempts exhausted")
+                        return 0
+                        
+                except requests.exceptions.ConnectionError:
+                    print(f"ERROR: Connection error (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        print("Retrying...")
+                        time.sleep(3)
+                        continue
+                    else:
+                        print("Could not establish connection to Ollama server")
+                        return 0
+                        
+                except requests.exceptions.RequestException as e:
+                    print(f"ERROR: Request failed (attempt {attempt + 1}): {e}")
                     if attempt < max_retries - 1:
                         print("Retrying...")
                         time.sleep(2)
                         continue
-                    return 0
+                    else:
+                        return 0
+                        
+                except json.JSONDecodeError:
+                    print(f"ERROR: Failed to decode JSON response from Ollama (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        print("Retrying...")
+                        time.sleep(2)
+                        continue
+                    else:
+                        return 0
 
-            except requests.exceptions.Timeout:
-                print(f"ERROR: Request timed out (attempt {attempt + 1})")
-                if attempt < max_retries - 1:
-                    print("Retrying with longer timeout...")
-                    time.sleep(5)
-                    continue
-                else:
-                    print("All retry attempts exhausted")
-                    return 0
-                    
-            except requests.exceptions.ConnectionError:
-                print(f"ERROR: Connection error (attempt {attempt + 1})")
-                if attempt < max_retries - 1:
-                    print("Retrying...")
-                    time.sleep(3)
-                    continue
-                else:
-                    print("Could not establish connection to Ollama server")
-                    return 0
-                    
-            except requests.exceptions.RequestException as e:
-                print(f"ERROR: Request failed (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    print("Retrying...")
-                    time.sleep(2)
-                    continue
-                else:
-                    return 0
-                    
-            except json.JSONDecodeError:
-                print(f"ERROR: Failed to decode JSON response from Ollama (attempt {attempt + 1})")
-                if attempt < max_retries - 1:
-                    print("Retrying...")
-                    time.sleep(2)
-                    continue
-                else:
-                    return 0
-
-        return 0  # Fallback if all retries fail
+            return 0  # Fallback if all retries fail
 
     def test_connection(self) -> dict:
         """Test connection and return diagnostic information."""

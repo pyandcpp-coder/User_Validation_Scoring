@@ -137,6 +137,7 @@ class ScoringEngine:
         
         print(f"Awarded {total_post_points:.2f} qualitative points to user {user_id}.")
         print(f"  - Originality: {points_from_originality:.2f}, Quality: {points_from_quality:.2f}")
+        return total_post_points
 
     def add_post_points(self, user_id: str):
         """Adds standard post points."""

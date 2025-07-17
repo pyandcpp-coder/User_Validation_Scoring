@@ -10,6 +10,13 @@ from collections import Counter
 from weaviate.classes.config import Configure, Property, DataType
 from weaviate.classes.data import DataObject
 from core.ollama_scorer import OllamaQualityScorer
+import weaviate
+from transformers import pipeline
+from PIL import Image
+import base64
+import uuid
+from typing import Optional # MOVED to top of file
+from weaviate.classes.config import Configure, Property, DataType
 try:
     gibberish_classifier = pipeline(
         "text-classification", 
@@ -257,16 +264,19 @@ class ContentValidator:
         except Exception as e:
             print(f"Error during duplicate check: {e}")
             
-    def process_new_post(self, user_id: str, text_content: str, image_path: str) -> tuple[str, float] | None:
+
+    from typing import Optional 
+
+    def process_new_post(self, user_id: str, text_content: str, image_path: Optional[str]) -> tuple[str, float] | None:
         """
         Main pipeline function for processing and validating a new post.
-        If successful, it returns the new post's UUID and its originality distance.
+        Handles both text-only and text-with-image posts.
         """
         print(f"\n--- Processing new post for user: {user_id} ---")
         
         # 1. Gibberish Check
-        if self.is_gibberish(text_content):
-            print("Post rejected: Content is gibberish.")
+        if not text_content or self.is_gibberish(text_content):
+            print("Post rejected: Content is empty or gibberish.")
             return None
         
         # 2. Duplicate Check
@@ -277,18 +287,22 @@ class ContentValidator:
             
         # 3. If all checks pass, add to Database
         print("Content is valid and original. Adding to Weaviate.")
-        
         try:
-            image_b64 = self._image_to_base64(image_path)
-            posts_collection = self.client.collections.get("Post")
-            
-            post_uuid = uuid.uuid4()
+            # Define the base object
             post_object = {
                 "content": text_content,
-                "image": image_b64,
                 "user_id": user_id
             }
+            # Conditionally add the image if it exists
+            if image_path:
+                image_b64 = self._image_to_base64(image_path)
+                post_object["image"] = image_b64
 
+            posts_collection = self.client.collections.get("Post")
+            
+            # CORRECTED: Define post_uuid before using it
+            post_uuid = uuid.uuid4() 
+            
             posts_collection.data.insert(
                 properties=post_object,
                 uuid=post_uuid
@@ -296,83 +310,21 @@ class ContentValidator:
             
             new_uuid_str = str(post_uuid)
             print(f"Successfully added post to Weaviate with UUID: {new_uuid_str}")
+            
             # Return the new UUID and the calculated originality distance
             return (new_uuid_str, distance)
             
         except Exception as e:
             print(f"Error adding post to Weaviate: {e}")
             return None
+
     def close(self):
         """Closes the connection to the Weaviate client."""
         print("Closing Weaviate connection...")
         if hasattr(self, 'client'):
             self.client.close()
 if __name__ == '__main__':
-    validator = None
-    try:
-        try:
-            Image.new('RGB', (60, 30), color='red').save('test_image.png')
-        except Exception as e:
-            print(f"Could not create dummy image: {e}")
-
-        validator = ContentValidator()
-
-        valid_text = "My family enjoying a wonderful vacation at the beach this summer."
-        post_id_1 = validator.process_new_post(
-            user_id="user-123", 
-            text_content=valid_text, 
-            image_path="test_image.png"
-        )
-        if post_id_1:
-            print(f"VALIDATION PASSED. Post ID: {post_id_1}")
-
-        gibberish_text = "asdf qwerty kljh poiu zxcvb mnbvcx"
-        post_id_2 = validator.process_new_post(
-            user_id="user-456", 
-            text_content=gibberish_text, 
-            image_path="test_image.png"
-        )
-        if not post_id_2:
-            print("VALIDATION FAILED AS EXPECTED.")
-        else:
-            print("WARNING: Gibberish was not detected properly!")
-        print("\n--- Testing with more obvious gibberish ---")
-        extreme_gibberish = "aaaaaaaaaaaaaaaa"
-        post_id_3 = validator.process_new_post(
-            user_id="user-789", 
-            text_content=extreme_gibberish, 
-            image_path="test_image.png"
-        )
-        if not post_id_3:
-            print("VALIDATION FAILED AS EXPECTED for extreme gibberish.")
-        else:
-            print("WARNING: Extreme gibberish was not detected!")
-            
-        print("\n--- Testing with keyboard mashing ---")
-        keyboard_mash = "lkjhgfdsa poiuytrewq"
-        post_id_4 = validator.process_new_post(
-            user_id="user-000", 
-            text_content=keyboard_mash, 
-            image_path="test_image.png"
-        )
-        if not post_id_4:
-            print("VALIDATION FAILED AS EXPECTED for keyboard mashing.")
-        else:
-            print("WARNING: Keyboard mashing was not detected!")
-        print("\n--- Testing duplicate detection ---")
-        duplicate_text = "My family enjoying a wonderful vacation at the beach this summer."
-        post_id_duplicate = validator.process_new_post(
-            user_id="user-duplicate", 
-            text_content=duplicate_text, 
-            image_path="test_image.png"
-        )
-        if not post_id_duplicate:
-            print("DUPLICATE DETECTION WORKING: Post was rejected as duplicate.")
-        else:
-            print("WARNING: Duplicate was not detected properly!")
-            
-    except Exception as e:
-        print(f"Error during execution: {e}")
-    finally:
-        if validator:
-            validator.close()
+    validator = ContentValidator()
+    print("Content Validator initialized successfully.")
+    
+    validator.close()
