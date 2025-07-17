@@ -1,10 +1,9 @@
-# core/ollama_scorer.py (Definitive Production Version)
 import requests
 import base64
 import json
 import time
 import os
-import re  # <-- **THE FIX IS HERE**
+import re 
 from typing import Optional
 
 class OllamaQualityScorer:

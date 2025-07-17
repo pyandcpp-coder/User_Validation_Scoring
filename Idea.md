@@ -49,3 +49,4 @@ Based on the score the user will be given tokes (money) and out ai should intell
 
 --> implement the per day rules and motnly caps 
 --> comments gibberish  check 
+--> implement cool down for the posts per day only 2

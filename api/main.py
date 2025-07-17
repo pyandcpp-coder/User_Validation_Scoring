@@ -6,8 +6,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
-
-# Import the Celery task and Scoring Engine
+from celery_worker import validate_and_score_comment_task
 from celery_worker import process_and_score_post_task
 from core.scoring_engine import ScoringEngine
 
@@ -71,27 +70,38 @@ async def handle_synchronous_action(request: BlockchainRequestModel):
     user_id = request.creatorAddress
     
     # --- Router for simple, synchronous tasks ---
-    if interaction_type not in ["like", "comment", "referral", "tipping"]:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid interactionType for this endpoint. Use /v1/submit_post for posts."
+    if interaction_type == "comment":
+
+        # **NEW:** Comments are now asynchronous to allow for AI checks
+        print(f"API: Queued 'comment' validation job for user {user_id}.")
+        
+        validate_and_score_comment_task.delay(
+            user_id=user_id,
+            text_content=request.Interaction.data or "",
+            webhook_url=request.webhookUrl
         )
         
-    print(f"API: Received synchronous '{interaction_type}' job for user {user_id}.")
+        # Respond immediately
+        return JSONResponse(
+            status_code=202, # 202 Accepted
+            content={"status": "processing", "message": "Comment accepted for validation and scoring."}
+        )
     
-    points_awarded = 0.0
-    if interaction_type == "like":
-        points_awarded = engine.add_like_points(user_id)
-    elif interaction_type == "comment":
-        points_awarded = engine.add_comment_points(user_id)
-    elif interaction_type == "referral":
-        points_awarded = engine.add_referral_points(user_id)
-    elif interaction_type == "tipping":
-        points_awarded = engine.add_tipping_points(user_id)
+        
+    elif interaction_type in ["like", "referral", "tipping"]:
+
+        # These actions remain synchronous as they don't need AI validation
+        print(f"API: Received synchronous '{interaction_type}' job for user {user_id}.")
+        
+        points_awarded = 0.0
+        if interaction_type == "like":
+            points_awarded = engine.add_like_points(user_id)
+        elif interaction_type == "referral":
+            points_awarded = engine.add_referral_points(user_id)
+        elif interaction_type == "tipping":
+            points_awarded = engine.add_tipping_points(user_id)
         
     final_score = engine.get_final_score(user_id)
-    
-    # Build and return the final AIResponse immediately
     ai_response = {
         "creatorAddress": user_id,
         "interactorAddress": request.interactorAddress,
@@ -104,7 +114,7 @@ async def handle_synchronous_action(request: BlockchainRequestModel):
         }
     }
     return JSONResponse(status_code=200, content=ai_response)
-
+# ... (after the handle_synchronous_action function)
 
 @app.post("/v1/submit_post", tags=["Asynchronous Actions (Posts)"])
 async def handle_post_submission(
@@ -129,9 +139,8 @@ async def handle_post_submission(
         text_content=request_data.Interaction.data or "",
         image_path=image_path,
         webhook_url=request_data.webhookUrl,
-        interactor_address=request_data.interactorAddress # Use snake_case
+        interactor_address=request_data.interactorAddress
     )
-    
     
     print(f"API: Queued 'post' job for user {request_data.creatorAddress}. Webhook: {request_data.webhookUrl}")
     

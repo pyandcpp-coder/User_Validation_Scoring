@@ -104,3 +104,67 @@ def process_and_score_post_task(
             # In a real system, you would re-queue this or log it to an error monitoring service.
 
     return ai_response # Return the response for Celery's own logging
+
+
+# In celery_worker.py
+
+# ... (imports and existing celery_app setup) ...
+
+# --- NEW Task for Validating Comments ---
+@celery_app.task(name="validate_and_score_comment_task")
+def validate_and_score_comment_task(user_id: str, text_content: str, webhook_url: Optional[str]):
+    """
+    Background task that validates a comment for gibberish and then scores it.
+    """
+    print(f"WORKER: Received comment validation job for user {user_id}")
+    
+    # Prepare the structure of the final JSON response
+    ai_response = {
+        "creatorAddress": user_id,
+        "Interaction": {"interactionType": "comment", "data": text_content},
+        "validation": {
+            "aiAgentResponseApproved": False,
+            "significanceScore": 0.0,
+            "reason": "Processing started"
+        }
+    }
+
+    validator = None
+    engine = None
+    try:
+        # Instantiate services fresh for this task
+        validator = ContentValidator()
+        engine = ScoringEngine()
+
+        # Perform the gibberish check
+        if not text_content or validator.is_gibberish(text_content):
+            ai_response["validation"]["reason"] = "Content failed validation (gibberish)."
+            print(f"WORKER: Comment from {user_id} failed gibberish check.")
+        else:
+            # If the comment is valid, award points
+            points_awarded = engine.add_comment_points(user_id)
+            
+            # Populate the success response
+            ai_response["validation"]["aiAgentResponseApproved"] = True
+            ai_response["validation"]["significanceScore"] = round(points_awarded, 4)
+            ai_response["validation"]["reason"] = "Comment approved and scored."
+            print(f"WORKER: Comment job for user {user_id} succeeded.")
+
+    except Exception as e:
+        print(f"WORKER: An unexpected error occurred for comment job {user_id}. Details: {e}")
+        ai_response["validation"]["reason"] = f"An internal error occurred: {e}"
+
+    finally:
+        # Ensure connections are closed
+        if validator: validator.close()
+        if engine: engine.close()
+
+        # Send the final response to the webhook if a URL was provided
+        if webhook_url:
+            try:
+                print(f"WORKER: Sending comment response to webhook: {webhook_url}")
+                requests.post(webhook_url, json=ai_response, timeout=15)
+            except requests.RequestException as e:
+                print(f"WORKER CRITICAL ERROR: Failed to send comment webhook to {webhook_url}. Details: {e}")
+
+    return ai_response

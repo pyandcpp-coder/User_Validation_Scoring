@@ -3,7 +3,9 @@ import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 import os
 from typing import Optional
-
+import datetime
+import psycopg2
+from psycopg2.pool import SimpleConnectionPool
 from . import scoring_config as config
 from .ollama_scorer import OllamaQualityScorer
 
@@ -35,8 +37,8 @@ class ScoringEngine:
         self.db_pool.putconn(conn)
 
     def _initialize_database(self):
-        """ **THE FIX IS HERE:** Creates the user_scores table with all required columns."""
-        conn = self.db_pool.getconn()
+        """Creates the user_scores table with all required columns."""
+        conn = self._get_conn()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -52,13 +54,17 @@ class ScoringEngine:
                         last_reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
                         daily_posts_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_likes_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-                        daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[]
+                        daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+                        -- --- FIX START: Add missing columns for referrals and tipping ---
+                        daily_referrals_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+                        daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[]
+                        -- --- FIX END ---
                     );
                 """)
             conn.commit()
         finally:
-            self.db_pool.putconn(conn)
-
+            self._put_conn(conn)
+        
     def _ensure_user_exists(self, conn, user_id: str):
         with conn.cursor() as cur:
             cur.execute("INSERT INTO user_scores (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
