@@ -6,15 +6,15 @@ from PIL import Image
 
 
 API_URL = "http://localhost:8000/v1/process_interaction"
-IMAGE_PATH = "test_image.png"
+# IMAGE_PATH = ""
 WEBHOOK_URL = "https://webhook.site/fb737657-2e62-4aac-bff5-bfaffe897fd7" 
 
 
 json_payload = {
   "creatorAddress": "wallet_0xabc_testuser",
   "Interaction": {
-    "interactionType": "post",
-    "data": "This is a high-quality test post sent with a file and structured JSON. The system should process this correctly."
+    "interactionType": "like",
+    "data": "post_id_12345"
   },
   "webhookUrl": WEBHOOK_URL
 }
@@ -22,12 +22,12 @@ json_payload = {
 def send_test_post():
     """Constructs and sends a correct multipart/form-data request."""
 
-    if not os.path.exists(IMAGE_PATH):
-        Image.new('RGB', (100, 80), color='purple').save(IMAGE_PATH)
+    # if not os.path.exists(IMAGE_PATH):
+    #     Image.new('RGB', (100, 80), color='purple').save(IMAGE_PATH)
 
     files = {
         'request': (None, json.dumps(json_payload), 'application/json'),
-        'image': (os.path.basename(IMAGE_PATH), open(IMAGE_PATH, 'rb'), 'image/png')
+        # 'image': (os.path.basename(IMAGE_PATH), open(IMAGE_PATH, 'rb'), 'image/png')
     }
 
     try:

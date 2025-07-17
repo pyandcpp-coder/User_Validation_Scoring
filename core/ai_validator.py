@@ -1,60 +1,46 @@
 import weaviate
-import torch
 from transformers import pipeline
 from PIL import Image
 import base64
 import uuid
-import re
-import string
-from collections import Counter
+import os
+from typing import Optional
+from collections import Counter # ADDED THE MISSING IMPORT
 from weaviate.classes.config import Configure, Property, DataType
-from weaviate.classes.data import DataObject
-from core.ollama_scorer import OllamaQualityScorer
-import weaviate
-from transformers import pipeline
-from PIL import Image
-import base64
-import uuid
-from typing import Optional # MOVED to top of file
-from weaviate.classes.config import Configure, Property, DataType
+from collections import Counter # <-- ADD THIS LINE
+# --- Gibberish Classifier Setup ---
+# This setup is done once when the module is imported.
 try:
-    gibberish_classifier = pipeline(
-        "text-classification", 
-        model="unitary/toxic-bert"
-    )
-    print("Using unitary/toxic-bert model")
-except:
+    gibberish_classifier = pipeline("text-classification", model="unitary/toxic-bert")
+    print("ContentValidator: Gibberish classifier 'unitary/toxic-bert' loaded.")
+except Exception as e:
+    print(f"ContentValidator: Could not load primary gibberish model, trying fallback. Error: {e}")
     try:
-        gibberish_classifier = pipeline(
-            "text-classification", 
-            model="madhurjindal/autonlp-Gibberish-Detector-492513457"
-        )
-        print("Using madhurjindal gibberish detector")
-    except:
-        print("Warning: Could not load gibberish classifier, using rule-based detection only")
+        gibberish_classifier = pipeline("text-classification", model="madhurjindal/autonlp-Gibberish-Detector-492513457")
+        print("ContentValidator: Gibberish classifier 'madhurjindal' loaded.")
+    except Exception as fallback_e:
+        print(f"ContentValidator WARNING: Could not load any gibberish classifier model. Rule-based checks will still apply. Error: {fallback_e}")
         gibberish_classifier = None
+
 
 class ContentValidator:
     def __init__(self):
-        """
-        Initializes the connection to Weaviate and sets up the database schema.
-        """
+        """Initializes the connection to Weaviate using environment variables."""
+        db_host = os.getenv("WEAVIATE_HOST", "localhost")
         try:
             self.client = weaviate.connect_to_custom(
-                http_host="localhost",
-                http_port=8080,
-                http_secure=False,       # HTTP not HTTPS
-                grpc_host="localhost",
-                grpc_port=50051,
-                grpc_secure=False        # gRPC insecure
+                http_host=db_host,
+                http_port=int(os.getenv("WEAVIATE_PORT", 8080)),
+                http_secure=False,
+                grpc_host=db_host,
+                grpc_port=int(os.getenv("WEAVIATE_GRPC_PORT", 50051)),
+                grpc_secure=False
             )
-
-            print("Successfully connected to Weaviate.")
+            print(f"ContentValidator: Successfully connected to Weaviate at {db_host}.")
+            self._setup_schema()
         except Exception as e:
-            print(f"Error connecting to Weaviate: {e}")
+            print(f"FATAL: ContentValidator could not connect to Weaviate. Details: {e}")
             raise
-
-        self._setup_schema()
 
     def _setup_schema(self):
         """
@@ -225,93 +211,56 @@ class ContentValidator:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode('utf-8')
 
-    def check_for_duplicates(self, text_content: str, image_path: str, threshold: float = 0.26) -> dict | None:
-        """
-        Checks for duplicate or very similar content in Weaviate before insertion.
-        
-        Args:
-            text_content: The text of the new post.
-            image_path: The path to the new post's image.
-            threshold: The distance threshold to consider an item a duplicate. 
-                       Lower values mean more similar (0 = identical, 1 = completely different).
-
-        Returns:
-            A dictionary with info about the duplicate if found, otherwise None.
-        """
+    def check_for_duplicates(self, text_content: str, image_path: Optional[str], threshold: float = 0.26) -> tuple[bool, float]:
+        """Robustly checks for duplicates using the correct Weaviate vector search method."""
         print("--- Checking for duplicate content ---")
         try:
-            image_b64 = self._image_to_base64(image_path)
             posts_collection = self.client.collections.get("Post")
 
-            # Use near_text for similarity search
+            # Use .near_text() for checking new, unsaved content. This is the most direct way.
             response = posts_collection.query.near_text(
-                query=text_content,
-                limit=3,
+                query=text_content, # The text we want to check for duplicates
+                limit=1,
                 return_metadata=["distance"]
             )
-            if not response.objects:
-                return (False, 1.0) # No duplicates, and maximum possible distance
-
-            most_similar_post = response.objects[0]
-            similarity_distance = most_similar_post.metadata.distance
-
-            if similarity_distance < threshold:
-                print(f"DUPLICATE DETECTED! Distance: {similarity_distance:.4f}")
-                return (True, similarity_distance) # It's a duplicate
             
-            print(f"Post appears original. Distance: {similarity_distance:.4f}")
-            return (False, similarity_distance) # Not a duplicate
+            if not response.objects: return (False, 1.0)
+            
+            distance = response.objects[0].metadata.distance
+            is_duplicate = distance < threshold
+            
+            print(f"Most similar post found with distance: {distance:.4f} (Threshold is < {threshold})")
+            if is_duplicate: print("DUPLICATE DETECTED!")
+                
+            return (is_duplicate, distance)
         except Exception as e:
-            print(f"Error during duplicate check: {e}")
-            
-
-    from typing import Optional 
+            print(f"ERROR during duplicate check: {e}")
+            return (False, 1.0)
 
     def process_new_post(self, user_id: str, text_content: str, image_path: Optional[str]) -> tuple[str, float] | None:
-        """
-        Main pipeline function for processing and validating a new post.
-        Handles both text-only and text-with-image posts.
-        """
+        """Main validation pipeline. Returns (post_id, distance) on success."""
         print(f"\n--- Processing new post for user: {user_id} ---")
-        
-        # 1. Gibberish Check
         if not text_content or self.is_gibberish(text_content):
             print("Post rejected: Content is empty or gibberish.")
             return None
         
-        # 2. Duplicate Check
         is_duplicate, distance = self.check_for_duplicates(text_content, image_path)
         if is_duplicate:
-            print(f"Post rejected: Content is a duplicate (distance: {distance:.4f}).")
+            print(f"Post rejected: Content is a duplicate.")
             return None
             
-        # 3. If all checks pass, add to Database
         print("Content is valid and original. Adding to Weaviate.")
         try:
-            # Define the base object
-            post_object = {
-                "content": text_content,
-                "user_id": user_id
-            }
-            # Conditionally add the image if it exists
+            post_object = {"content": text_content, "user_id": user_id}
             if image_path:
-                image_b64 = self._image_to_base64(image_path)
-                post_object["image"] = image_b64
-
+                post_object["image"] = self._image_to_base64(image_path)
+            
             posts_collection = self.client.collections.get("Post")
-            
-            # CORRECTED: Define post_uuid before using it
-            post_uuid = uuid.uuid4() 
-            
-            posts_collection.data.insert(
-                properties=post_object,
-                uuid=post_uuid
-            )
+            post_uuid = uuid.uuid4()
+            posts_collection.data.insert(properties=post_object, uuid=post_uuid)
             
             new_uuid_str = str(post_uuid)
             print(f"Successfully added post to Weaviate with UUID: {new_uuid_str}")
-            
-            # Return the new UUID and the calculated originality distance
             return (new_uuid_str, distance)
             
         except Exception as e:
@@ -321,10 +270,5 @@ class ContentValidator:
     def close(self):
         """Closes the connection to the Weaviate client."""
         print("Closing Weaviate connection...")
-        if hasattr(self, 'client'):
+        if hasattr(self, 'client') and self.client:
             self.client.close()
-if __name__ == '__main__':
-    validator = ContentValidator()
-    print("Content Validator initialized successfully.")
-    
-    validator.close()
