@@ -39,3 +39,13 @@ Based on the score the user will be given tokes (money) and out ai should intell
 --> chekcing for plagarism form the vector db or any efficient data storage
 --> check for other checks 
 --> if passed then working on scoring
+
+
+
+
+
+
+## 17 - Jul 
+
+--> implement the per day rules and motnly caps 
+--> comments gibberish  check 
