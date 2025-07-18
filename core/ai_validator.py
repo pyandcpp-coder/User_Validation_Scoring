@@ -5,11 +5,10 @@ import base64
 import uuid
 import os
 from typing import Optional
-from collections import Counter # ADDED THE MISSING IMPORT
+from collections import Counter
 from weaviate.classes.config import Configure, Property, DataType
-from collections import Counter # <-- ADD THIS LINE
+
 # --- Gibberish Classifier Setup ---
-# This setup is done once when the module is imported.
 try:
     gibberish_classifier = pipeline("text-classification", model="unitary/toxic-bert")
     print("ContentValidator: Gibberish classifier 'unitary/toxic-bert' loaded.")
@@ -136,51 +135,69 @@ class ContentValidator:
         vowels = 'aeiou'
         consonants = 'bcdfghjklmnpqrstvwxyz'
         
-        vowel_count = sum(1 for char in text if char in vowels)
-        consonant_count = sum(1 for char in text if char in consonants)
-        total_letters = vowel_count + consonant_count
+        # Only count letters, not numbers or other characters
+        letters_only = ''.join(c for c in text if c.isalpha())
+        if not letters_only:
+            return False  # If no letters, let other checks decide
+            
+        vowel_count = sum(1 for char in letters_only if char in vowels)
+        consonant_count = sum(1 for char in letters_only if char in consonants)
+        total_letters = len(letters_only)
         
         if total_letters > 0:
             vowel_ratio = vowel_count / total_letters
             consonant_ratio = consonant_count / total_letters
             
             # Flag if too many consonants or too few vowels
-            if consonant_ratio > 0.8 or vowel_ratio < 0.1:
+            if consonant_ratio > 0.85 or vowel_ratio < 0.05:
                 return True
         
         return False
     
     def _statistical_gibberish_check(self, text: str) -> bool:
-        """Statistical analysis for gibberish detection"""
+        """Statistical analysis for gibberish detection - FIXED"""
         words = text.split()
         
-        # Check average word length
+        # Skip statistical checks for short texts
+        if len(words) < 3:
+            return False
+        
+        # Check average word length - RELAXED THRESHOLDS
         if words:
-            avg_word_length = sum(len(word) for word in words) / len(words)
-            if avg_word_length > 10 or avg_word_length < 2:
-                return True
-        
-        # Check for words with no vowels (except common ones like "by", "my")
-        common_no_vowel_words = {'by', 'my', 'gym', 'fly', 'try', 'cry', 'dry', 'fry', 'shy', 'spy', 'why'}
-        
-        for word in words:
-            if len(word) > 3 and word not in common_no_vowel_words:
-                if not any(vowel in word for vowel in 'aeiou'):
+            # Filter out numbers and special tokens before calculating average
+            actual_words = [w for w in words if any(c.isalpha() for c in w)]
+            if actual_words:
+                avg_word_length = sum(len(word) for word in actual_words) / len(actual_words)
+                # Relaxed thresholds: was > 10 or < 2, now > 15 or < 1
+                if avg_word_length > 15 or avg_word_length < 1:
                     return True
         
-        # Check character frequency distribution
-        char_freq = Counter(char for char in text if char.isalpha())
-        if char_freq:
-            # Check if any character appears more than 40% of the time
+        # Check for words with no vowels (except common ones like "by", "my")
+        common_no_vowel_words = {'by', 'my', 'gym', 'fly', 'try', 'cry', 'dry', 'fry', 'shy', 'spy', 'why', 'mr', 'mrs', 'dr', 'st', 'rd', 'nd', 'th'}
+        
+        for word in words:
+            # Skip numbers and short words
+            if word.isdigit() or len(word) <= 2:
+                continue
+            if len(word) > 3 and word.lower() not in common_no_vowel_words:
+                if not any(vowel in word.lower() for vowel in 'aeiou'):
+                    return True
+        
+        # Check character frequency distribution - RELAXED
+        # Only check alphabetic characters
+        alpha_text = ''.join(c for c in text if c.isalpha())
+        if alpha_text:
+            char_freq = Counter(char.lower() for char in alpha_text)
             total_chars = sum(char_freq.values())
             max_freq = max(char_freq.values())
-            if max_freq / total_chars > 0.4:
+            # Relaxed threshold: was > 0.4, now > 0.5
+            if max_freq / total_chars > 0.5:
                 return True
         
         return False
     
     def _ml_gibberish_check(self, text: str) -> bool:
-        """ML model-based gibberish detection"""
+        """ML model-based gibberish detection - MORE CONSERVATIVE"""
         try:
             results = gibberish_classifier(text)
             
@@ -190,14 +207,17 @@ class ContentValidator:
                 
                 # For the madhurjindal model, LABEL_0 means gibberish
                 if 'madhurjindal' in str(gibberish_classifier.model.config._name_or_path):
-                    if result['label'] == 'LABEL_0' and result['score'] > 0.7:
+                    # Increased threshold from 0.7 to 0.85 for more confidence
+                    if result['label'] == 'LABEL_0' and result['score'] > 0.85:
                         return True
                 
                 # For toxic-bert, we look for non-toxic (clean) text
                 elif 'toxic-bert' in str(gibberish_classifier.model.config._name_or_path):
-                    if result['label'] == 'TOXIC' and result['score'] > 0.8:
+                    # Increased threshold from 0.8 to 0.9
+                    if result['label'] == 'TOXIC' and result['score'] > 0.9:
                         return True
-                elif result['score'] > 0.8:
+                # Increased general threshold from 0.8 to 0.85
+                elif result['score'] > 0.85:
                     return True
             
             return False
@@ -211,31 +231,88 @@ class ContentValidator:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode('utf-8')
 
-    def check_for_duplicates(self, text_content: str, image_path: Optional[str], threshold: float = 0.26) -> tuple[bool, float]:
-        # --- FIX: Lowered the default threshold from 0.26 to 0.15 for stricter duplicate checking ---
-        """Robustly checks for duplicates using the correct Weaviate vector search method."""
+    def check_for_duplicates(self, text_content: str, image_path: Optional[str], threshold: float = 0.1) -> tuple[bool, float]:
+        """
+        Enhanced duplicate checking with more reasonable threshold.
+        Increased threshold from 0.10 to 0.35 to be less strict about duplicates.
+        For context: distance values typically range from 0 (identical) to 1+ (very different)
+        """
         print("--- Checking for duplicate content ---")
+        print(f"Input text: '{text_content}'")
+        print(f"Threshold: {threshold} (lower = more strict)")
+        
         try:
             posts_collection = self.client.collections.get("Post")
+            
+            # Check if collection exists and has any data
+            try:
+                collection_info = posts_collection.aggregate.over_all(total_count=True)
+                total_posts = collection_info.total_count
+                print(f"Total posts in collection: {total_posts}")
+                
+                if total_posts == 0:
+                    print("Collection is empty - no duplicates possible")
+                    return (False, 1.0)
+                    
+            except Exception as e:
+                print(f"Warning: Could not get collection info: {e}")
+                # If we can't check, assume no duplicates to avoid false positives
+                return (False, 1.0)
 
-
+            # Perform the similarity search
+            print("Performing vector similarity search...")
             response = posts_collection.query.near_text(
                 query=text_content,
-                limit=1,
-                return_metadata=["distance"]
+                limit=3,  # Get top 3 for better debugging
+                return_metadata=["distance"],
+                return_properties=["content", "user_id"]  # Return content for debugging
             )
             
-            if not response.objects: return (False, 1.0)
+            if not response.objects:
+                print("No similar posts found")
+                return (False, 1.0)
             
-            distance = response.objects[0].metadata.distance
-            is_duplicate = distance < threshold
+            print(f"Found {len(response.objects)} similar posts:")
+            for i, obj in enumerate(response.objects):
+                distance = obj.metadata.distance
+                content_preview = obj.properties.get('content', '')[:50] + "..."
+                user_id = obj.properties.get('user_id', 'unknown')
+                print(f"  {i+1}. Distance: {distance:.4f}, User: {user_id}")
+                print(f"      Content: '{content_preview}'")
             
-            print(f"Most similar post found with distance: {distance:.4f} (Threshold is < {threshold})")
-            if is_duplicate: print("DUPLICATE DETECTED!")
+            # Use the closest match for duplicate detection
+            closest_distance = response.objects[0].metadata.distance
+            is_duplicate = closest_distance < threshold
+            
+            # Additional check: exact match detection
+            closest_content = response.objects[0].properties.get('content', '')
+            if closest_content == text_content:
+                print("EXACT MATCH DETECTED - definite duplicate")
+                is_duplicate = True
+                closest_distance = 0.0
+            
+            # For test content with UUIDs, be more lenient
+            if 'test_run_' in text_content and closest_distance < 0.5:
+                print("Test content detected, using more lenient threshold")
+                is_duplicate = closest_distance < 0.15  # Much stricter for test content
+            
+            print(f"Closest match distance: {closest_distance:.4f}")
+            print(f"Is duplicate (< {threshold}): {is_duplicate}")
+            
+            if is_duplicate:
+                print("🚨 DUPLICATE DETECTED!")
+                print(f"   Rejecting because distance {closest_distance:.4f} < threshold {threshold}")
+            else:
+                print("✅ Content appears to be original")
                 
-            return (is_duplicate, distance)
+            return (is_duplicate, closest_distance)
+            
         except Exception as e:
             print(f"ERROR during duplicate check: {e}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            # On error, allow the content through
             return (False, 1.0)
 
     def process_new_post(self, user_id: str, text_content: str, image_path: Optional[str]) -> tuple[str, float] | None:

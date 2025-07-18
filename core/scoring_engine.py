@@ -22,7 +22,6 @@ class ScoringEngine:
                 host=db_host,
                 port=os.getenv("POSTGRES_PORT", "5432")
             )
-            self._initialize_database()
             print(f"ScoringEngine: DB connection pool created for {db_host}.")
         except psycopg2.OperationalError as e:
             print(f"FATAL: ScoringEngine could not connect to PostgreSQL. Details: {e}")
@@ -99,6 +98,7 @@ class ScoringEngine:
     def add_referral_points(self, user_id: str) -> float:
         conn = self._get_conn()
         try:
+            # Setting daily_max to a very high number effectively disables the daily check for this action
             # --- FIX: Pass daily_max as a positional argument, not a keyword argument ---
             return self._add_timed_points(conn, user_id, 'referrals', config.POINTS_PER_REFERRAL, config.MAX_MONTHLY_REFERRAL_POINTS, 999999)
         finally:
@@ -114,14 +114,16 @@ class ScoringEngine:
 
     def _add_timed_points(self, conn, user_id: str, action_type: str, points_to_add: float, monthly_max: float, daily_max: int, **kwargs) -> float:
         """A generic and robust helper that checks daily and monthly limits in a safe transaction."""
-        # This function's implementation is correct and does not need changes.
         try:
             self._ensure_user_exists(conn, user_id)
             with conn.cursor() as cur:
                 cur.execute(f"SELECT points_from_{action_type}, daily_{action_type}_timestamps FROM user_scores WHERE user_id = %s FOR UPDATE;", (user_id,))
                 record = cur.fetchone()
                 current_monthly_points = record[0] if record else 0.0
+                
+                # --- FIX START: Initialize the 'timestamps' variable from the database record ---
                 timestamps = record[1] if record and record[1] else []
+                # --- FIX END ---
 
                 if round(current_monthly_points, 2) >= monthly_max:
                     print(f"User {user_id} has reached the monthly '{action_type}' limit.")
@@ -130,6 +132,7 @@ class ScoringEngine:
                 
                 now = datetime.datetime.now(datetime.timezone.utc)
                 twenty_four_hours_ago = now - datetime.timedelta(hours=24)
+                
                 recent_timestamps = [ts for ts in timestamps if ts > twenty_four_hours_ago]
                 
                 if len(recent_timestamps) >= daily_max:
@@ -137,9 +140,27 @@ class ScoringEngine:
                     conn.rollback()
                     return 0.0
 
+                # --- FIX START: Replace placeholder with actual qualitative scoring logic ---
                 if kwargs.get('is_post'):
-                    # ... (qualitative scoring logic is correct)
-                    points_to_add = ...
+                    print("--- Performing qualitative scoring for post ---")
+                    text_content = kwargs.get('text_content', '')
+                    image_path = kwargs.get('image_path')
+                    originality_distance = kwargs.get('originality_distance', 0.0)
+
+                    # Get the 0-10 quality score from the AI model
+                    quality_score = self.quality_scorer.get_quality_score(text_content, image_path)
+                    
+                    # Define a bonus based on the quality score (e.g., up to 1 extra point)
+                    quality_bonus = (quality_score / 10.0) * 1.0 
+                    
+                    # Define a smaller bonus based on originality (e.g., up to 0.25 extra points)
+                    # The distance is higher for more original content, so we can use it directly
+                    originality_bonus = originality_distance * 0.25
+
+                    # Calculate the final points for this specific post
+                    points_to_add = config.POINTS_PER_POST + quality_bonus + originality_bonus
+                    print(f"Qualitative Score Breakdown: Base({config.POINTS_PER_POST}) + Quality({quality_bonus:.2f}) + Originality({originality_bonus:.2f}) = {points_to_add:.2f}")
+                # --- FIX END ---
 
                 new_timestamps = recent_timestamps + [now]
                 cur.execute(f"""
@@ -150,7 +171,7 @@ class ScoringEngine:
                 """, (monthly_max, points_to_add, new_timestamps, user_id))
             
             conn.commit()
-            print(f"Awarded {points_to_add:.2f} points for '{action_type}' to user {user_id}.")
+            print(f"Awarded {points_to_add:.4f} points for '{action_type}' to user {user_id}.")
             return points_to_add
         except psycopg2.Error as e:
             print(f"DATABASE ERROR in _add_timed_points: {e}")
