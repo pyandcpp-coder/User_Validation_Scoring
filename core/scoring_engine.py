@@ -54,10 +54,8 @@ class ScoringEngine:
                         daily_posts_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_likes_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-                        -- --- FIX START: Add missing columns for referrals and tipping ---
                         daily_referrals_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[]
-                        -- --- FIX END ---
                     );
                 """)
             conn.commit()

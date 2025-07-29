@@ -162,7 +162,7 @@ Use the `run_all_tests.py` script for a comprehensive test of all features.
     python run_all_tests.py
     ```
 ## Flow Diagram
-![alt text](image.png)
+![alt text](utils/image.png)
 **Expected Test Outcomes:**
 -   **Like/Comment Tests:** You will see immediate `200 OK` responses in your terminal with the calculated scores.
 -   **High-Quality Post Test:** You will get a `202 Accepted` response. The webhook will receive a success JSON with a high `significanceScore` (e.g., > 2.0).

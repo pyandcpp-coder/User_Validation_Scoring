@@ -1,5 +1,3 @@
-# celery_worker.py - Fixed version with proper parameter handling
-
 from celery import Celery
 import os
 import requests
@@ -7,8 +5,6 @@ from typing import Optional
 
 from core.ai_validator import ContentValidator
 from core.scoring_engine import ScoringEngine
-
-# --- Celery App Configuration ---
 celery_app = Celery(
     'tasks',
     broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),

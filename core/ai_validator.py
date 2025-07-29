@@ -8,7 +8,7 @@ from typing import Optional
 from collections import Counter
 from weaviate.classes.config import Configure, Property, DataType
 
-# --- Gibberish Classifier Setup ---
+
 try:
     gibberish_classifier = pipeline("text-classification", model="unitary/toxic-bert")
     print("ContentValidator: Gibberish classifier 'unitary/toxic-bert' loaded.")

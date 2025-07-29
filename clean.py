@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Robust Database Cleanup Script - Handles connection issues properly
 Run this script to reset all data before testing.

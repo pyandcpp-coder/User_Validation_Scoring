@@ -12,7 +12,7 @@ from celery_worker import validate_and_score_comment_task
 from celery_worker import process_and_score_post_task
 from core.scoring_engine import ScoringEngine
 
-# --- Pydantic Models for Input Validation ---
+
 class InteractionModel(BaseModel):
     interactionType: str = Field(..., description="The type of interaction, e.g., 'post', 'like', 'comment'.")
     data: Optional[str] = Field(None, description="The text content for a post or comment, or an ID for a like.")
@@ -23,12 +23,10 @@ class BlockchainRequestModel(BaseModel):
     Interaction: InteractionModel
     webhookUrl: Optional[str] = Field(None, description="The URL to send the final AIResponse to (required for posts).")
 
-# --- GLOBAL ENGINE INSTANCE ---
 engine = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     global engine
     print("Application startup: Initializing scoring engine and database...")
     try:
@@ -62,10 +60,6 @@ app = FastAPI(
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-
-# ===================================================================
-#                      DEBUG ENDPOINTS
-# ===================================================================
 
 @app.get("/debug/db", tags=["Debug"])
 def debug_database():
@@ -108,11 +102,7 @@ def debug_engine():
             return {"status": "error", "error": "Engine not initialized"}
             
         test_user = "debug_user_123"
-        
-        # Test engine connection
         initial_score = engine.get_final_score(test_user)
-        
-        # Test adding points
         like_points = engine.add_like_points(test_user)
         
         final_score = engine.get_final_score(test_user)
@@ -155,9 +145,6 @@ def debug_simple_like(user_id: str = Query(default="test_user")):
             "traceback": traceback.format_exc()
         }
 
-# ===================================================================
-#                      MAIN API ENDPOINTS
-# ===================================================================
 
 @app.get("/health", tags=["System"])
 def health_check():
@@ -321,7 +308,6 @@ async def handle_post_submission(
     Handles 'post' submissions, which may include an image file.
     For posts, interactorAddress is the user who gets the rewards (since they created the content).
     """
-    # Build the request model from form fields
     request_data = BlockchainRequestModel(
         creatorAddress=creatorAddress,
         interactorAddress=interactorAddress,
@@ -331,8 +317,7 @@ async def handle_post_submission(
         ),
         webhookUrl=webhookUrl
     )
-    
-    # CRITICAL: interactorAddress is REQUIRED for posts too
+
     if not request_data.interactorAddress:
         return JSONResponse(
             status_code=400,
@@ -348,11 +333,8 @@ async def handle_post_submission(
         image_path = os.path.join(UPLOAD_FOLDER, temp_filename)
         with open(image_path, "wb") as buffer:
             buffer.write(await image.read())
-
-    # For posts, use interactorAddress as the user ID (they get the rewards)
     user_id = request_data.interactorAddress
 
-    # Queue the background job
     process_and_score_post_task.delay(
         user_id=user_id,
         text_content=request_data.Interaction.data or "",
@@ -364,7 +346,6 @@ async def handle_post_submission(
     
     print(f"API: Queued 'post' job for user {user_id}. Webhook: {request_data.webhookUrl}")
     
-    # Respond immediately to the caller
     return JSONResponse(
         status_code=202,
         content={"status": "processing", "message": "Post accepted for validation and scoring. Result will be sent to webhook."}
