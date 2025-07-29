@@ -47,3 +47,20 @@ To keep the system flexible and future-proof, all new "magic numbers" will be ad
 *   `TOP_INACTIVE_USERS_TO_REWARD`: The number of top inactive users to identify (e.g., `5`).
 *   `HISTORICAL_SCORE_WEIGHTS`: A dictionary containing the weights for different factors when calculating the `HistoricalEngagementScore` (e.g., `{'streak': 0.4, 'total_posts': 0.3, 'avg_quality': 0.3}`).
 
+
+
+# Logic
+
+1.  **Criteria Met Users:**
+    *   **Who they are:** Users who successfully completed all daily limits (e.g., 2 posts AND 5 likes AND 5 comments).
+    *   **What they get:** They have already received their standard rewards (crypto, etc.) via the real-time API calls.
+    *   **Streak:** Their activity streak is maintained and incremented.
+    *   **Historical Score:** Their `historical_engagement_score` for the day is set to **0**. They are not eligible for the "empathy" reward because they were fully active and rewarded.
+
+2.  **Criteria NOT Met Users:**
+    *   **Who they are:** *Everyone else*. This includes users who were partially active (1 like, 0 posts) and users who had **zero activity** all day.
+    *   **What happens to them:**
+        *   **Streak:** Their `consecutive_activity_days` streak is **reset to 0**. This is the trade-off: failing to meet the full criteria breaks the streak.
+        *   **Historical Score:** A new `historical_engagement_score` is calculated for them. This calculation heavily values the `streak` they had *before* it was reset, plus their lifetime contributions.
+    *   **The Reward:** The entire pool of "Criteria NOT Met Users" is then sorted by this new `historical_engagement_score`, and the top N users are identified as candidates for the empathy reward.
+
