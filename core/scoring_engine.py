@@ -35,11 +35,44 @@ class ScoringEngine:
         """Returns a connection to the pool."""
         self.db_pool.putconn(conn)
 
+    # def _initialize_database(self):
+    #     """Creates the user_scores table with all required columns."""
+    #     conn = self._get_conn()
+    #     try:
+    #         with conn.cursor() as cur:
+    #             cur.execute("""
+    #                 CREATE TABLE IF NOT EXISTS user_scores (
+    #                     user_id VARCHAR(255) PRIMARY KEY,
+    #                     points_from_posts REAL DEFAULT 0.0,
+    #                     points_from_likes REAL DEFAULT 0.0,
+    #                     points_from_comments REAL DEFAULT 0.0,
+    #                     points_from_referrals REAL DEFAULT 0.0,
+    #                     points_from_tipping REAL DEFAULT 0.0,
+    #                     one_time_points REAL DEFAULT 0.0,
+    #                     one_time_events TEXT[] DEFAULT ARRAY[]::TEXT[],
+    #                     last_reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    #                     daily_posts_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+    #                     daily_likes_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+    #                     daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+    #                     daily_referrals_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+    #                     daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+    #                 );
+    #             """)
+    #         conn.commit()
+    #     finally:
+    #         self._put_conn(conn)
+    
+    # new changes ../ part 2
+    # In scoring_engine.py
+
+    # ... (imports and class definition) ...
+
     def _initialize_database(self):
-        """Creates the user_scores table with all required columns."""
+        """Creates or updates the user_scores table with all required columns."""
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
+                print("Ensuring 'user_scores' table exists...")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_scores (
                         user_id VARCHAR(255) PRIMARY KEY,
@@ -55,12 +88,49 @@ class ScoringEngine:
                         daily_likes_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_referrals_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-                        daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[]
+                        daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
+
+                        -- NEW COLUMNS FOR HISTORICAL ANALYSIS --
+                        last_active_date DATE,
+                        consecutive_activity_days INTEGER DEFAULT 0,
+                        historical_engagement_score REAL DEFAULT 0.0
                     );
                 """)
+                print("'user_scores' table exists.")
+            self._update_database_schema(conn)
             conn.commit()
+            print("Database schema is up-to-date.")
+        except Exception as e:
+            print(f"DATABASE INITIALIZATION ERROR: {e}")
+            conn.rollback()
+            raise
         finally:
             self._put_conn(conn)
+
+    def _update_database_schema(self, conn):
+        """
+        Checks for and adds new columns to an existing user_scores table
+        to ensure backward compatibility without manual database changes.
+        """
+        columns_to_add = {
+            "last_active_date": "DATE",
+            "consecutive_activity_days": "INTEGER DEFAULT 0",
+            "historical_engagement_score": "REAL DEFAULT 0.0"
+        }
+
+        with conn.cursor() as cur:
+            for column_name, column_type in columns_to_add.items():
+                cur.execute("""
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='user_scores' AND column_name=%s;
+                """, (column_name,))
+                
+                if cur.fetchone():
+                    print(f"Column '{column_name}' already exists.")
+                else:
+                    print(f"Column '{column_name}' not found. Adding it...")
+                    cur.execute(f"ALTER TABLE user_scores ADD COLUMN {column_name} {column_type};")
+                    print(f"Column '{column_name}' added successfully.")
         
     def _ensure_user_exists(self, conn, user_id: str):
         """Ensures a user record exists in the database before proceeding."""
@@ -118,10 +188,7 @@ class ScoringEngine:
                 cur.execute(f"SELECT points_from_{action_type}, daily_{action_type}_timestamps FROM user_scores WHERE user_id = %s FOR UPDATE;", (user_id,))
                 record = cur.fetchone()
                 current_monthly_points = record[0] if record else 0.0
-                
-                # --- FIX START: Initialize the 'timestamps' variable from the database record ---
                 timestamps = record[1] if record and record[1] else []
-                # --- FIX END ---
 
                 if round(current_monthly_points, 2) >= monthly_max:
                     print(f"User {user_id} has reached the monthly '{action_type}' limit.")
@@ -138,7 +205,6 @@ class ScoringEngine:
                     conn.rollback()
                     return 0.0
 
-                # --- FIX START: Replace placeholder with actual qualitative scoring logic ---
                 if kwargs.get('is_post'):
                     print("--- Performing qualitative scoring for post ---")
                     text_content = kwargs.get('text_content', '')
@@ -164,12 +230,13 @@ class ScoringEngine:
                 cur.execute(f"""
                     UPDATE user_scores
                     SET points_from_{action_type} = LEAST(%s, points_from_{action_type} + %s),
-                        daily_{action_type}_timestamps = %s
+                        daily_{action_type}_timestamps = %s,
+                        last_active_date = %s
                     WHERE user_id = %s;
-                """, (monthly_max, points_to_add, new_timestamps, user_id))
+                """, (monthly_max, points_to_add, new_timestamps, now.date(), user_id))
             
             conn.commit()
-            print(f"Awarded {points_to_add:.4f} points for '{action_type}' to user {user_id}.")
+            print(f"Awarded {points_to_add:.4f} points for '{action_type}' to user {user_id}. Activity date recorded.")
             return points_to_add
         except psycopg2.Error as e:
             print(f"DATABASE ERROR in _add_timed_points: {e}")

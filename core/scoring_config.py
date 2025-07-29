@@ -31,3 +31,13 @@ TOTAL_POSSIBLE_MONTHLY_POINTS = (
     MAX_MONTHLY_REFERRAL_POINTS +
     MAX_MONTHLY_TIPPING_POINTS
 )
+
+
+TOP_INACTIVE_USERS_TO_REWARD = 5
+
+HISTORICAL_SCORE_WEIGHTS = {
+    "streak_at_reset": 0.5,    # Importance of the streak they had before becoming inactive
+    "lifetime_posts": 0.3,   # Importance of their total number of posts
+    "lifetime_likes": 0.1,   # Importance of their total number of likes
+    "lifetime_comments": 0.1 # Importance of their total comments
+}
