@@ -1,30 +1,4 @@
-version: '3.8'
-
 services:
-  weaviate:
-    image: cr.weaviate.io/semitechnologies/weaviate:1.24.1
-    restart: on-failure:0
-    ports:
-     - "8080:8080"
-     - "50051:50051"
-    environment:
-      CLIP_INFERENCE_API: 'http://multi2vec-clip:8080'
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      DEFAULT_VECTORIZER_MODULE: 'multi2vec-clip'
-      ENABLE_MODULES: 'multi2vec-clip'
-      CLUSTER_HOSTNAME: 'node1'
-
-  multi2vec-clip:
-    # image: cr.weaviate.io/semitechnologies/multi2vec-clip:en_vision-transformers-clip-ViT-B-32
-    image: cr.weaviate.io/semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32
-
-    restart: on-failure:0
-    environment:
-      ENABLE_CUDA: '0'
-
-  # NEW: PostgreSQL Database
   postgres:
     image: postgres:15
     restart: always
@@ -37,26 +11,81 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # NEW: Redis for Caching and Task Queue
   redis:
     image: redis:7
     restart: always
     ports:
       - "6379:6379"
-  # celery_worker:
-  #   build:
-  #     context: .
-  #   command: celery -A celery_worker worker --loglevel=info --pool=solo
-  #   depends_on:
-  #     - redis
-  #     - postgres
-  #     - weaviate
-  #   environment:
-  #     - CELERY_BROKER_URL=redis://redis:6379/0
-  #   volumes:
-  #     - .:/app
-  #   working_dir: /app
 
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.24.1
+    restart: on-failure:0
+    ports:
+     - "8080:8080"
+     - "50051:50051"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'multi2vec-clip'
+      ENABLE_MODULES: 'multi2vec-clip'
+      CLUSTER_HOSTNAME: 'node1'
+      CLIP_INFERENCE_API: 'http://multi2vec-clip:8080'
+
+  multi2vec-clip:
+    image: cr.weaviate.io/semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32
+    restart: on-failure:0
+    environment:
+      ENABLE_CUDA: '0'
+
+  api:
+    build: .
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - redis
+      - weaviate
+    environment:
+      - POSTGRES_HOST=postgres
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WEAVIATE_HOST=weaviate
+      - OLLAMA_HOST_URL=http://host.docker.internal:11434
+
+  worker:
+    build: .
+    command: celery -A celery_worker worker --loglevel=info --pool=solo
+    restart: always
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - redis
+      - weaviate
+    environment:
+      - POSTGRES_HOST=postgres
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WEAVIATE_HOST=weaviate
+      - OLLAMA_HOST_URL=http://host.docker.internal:11434
+  beat:
+    build: .
+    command: celery -A celery_worker beat --loglevel=info
+    restart: always
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      - POSTGRES_HOST=postgres
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
 volumes:
   postgres_data:

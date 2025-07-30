@@ -5,11 +5,26 @@ from typing import Optional
 
 from core.ai_validator import ContentValidator
 from core.scoring_engine import ScoringEngine
+from core.historical_analyzer import HistoricalAnalyzer
+
 celery_app = Celery(
     'tasks',
     broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
     backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
+# --- NEW SECTION: CELERY BEAT SCHEDULE ---
+celery_app.conf.beat_schedule = {
+    'run-daily-user-analysis': {
+        'task': 'daily_empathy_analysis_task',
+        # 'schedule': 86400.0,  # 86400 seconds = 24 hours
+        
+        # For testing, you can set a shorter schedule, e.g., 60.0 for every minute
+        'schedule': 200.0,
+    },
+}
+celery_app.conf.timezone = 'UTC'
+# --- END NEW SECTION ---
+
 
 @celery_app.task(name="process_and_score_post_task")
 def process_and_score_post_task(
@@ -120,3 +135,24 @@ def validate_and_score_comment_task(
             except requests.RequestException as e:
                 print(f"WORKER CRITICAL: Failed to send comment webhook to {webhook_url}. Details: {e}")
     return ai_response
+
+# --- NEW TASK DEFINITION ---
+@celery_app.task(name="daily_empathy_analysis_task")
+def daily_empathy_analysis_task():
+    """
+    A scheduled daily task that initiates the historical user analysis
+    to provide "empathy" rewards for loyal but recently inactive users.
+    """
+    print("SCHEDULER: Kicking off the daily user empathy analysis.")
+    analyzer = None
+    try:
+        analyzer = HistoricalAnalyzer()
+        analyzer.analyze_and_reward_users()
+        print("SCHEDULER: Daily analysis completed successfully.")
+    except Exception as e:
+        import traceback
+        print(f"SCHEDULER CRITICAL: The daily empathy analysis task failed. Error: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+    finally:
+        if analyzer:
+            analyzer.close()
