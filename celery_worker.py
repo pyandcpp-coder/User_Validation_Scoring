@@ -2,7 +2,6 @@ from celery import Celery
 import os
 import requests
 from typing import Optional
-
 from core.ai_validator import ContentValidator
 from core.scoring_engine import ScoringEngine
 from core.historical_analyzer import HistoricalAnalyzer
@@ -136,7 +135,7 @@ def validate_and_score_comment_task(
                 print(f"WORKER CRITICAL: Failed to send comment webhook to {webhook_url}. Details: {e}")
     return ai_response
 
-# --- NEW TASK DEFINITION ---
+
 @celery_app.task(name="daily_empathy_analysis_task")
 def daily_empathy_analysis_task():
     """
