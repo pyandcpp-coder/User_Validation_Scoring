@@ -35,38 +35,6 @@ class ScoringEngine:
         """Returns a connection to the pool."""
         self.db_pool.putconn(conn)
 
-    # def _initialize_database(self):
-    #     """Creates the user_scores table with all required columns."""
-    #     conn = self._get_conn()
-    #     try:
-    #         with conn.cursor() as cur:
-    #             cur.execute("""
-    #                 CREATE TABLE IF NOT EXISTS user_scores (
-    #                     user_id VARCHAR(255) PRIMARY KEY,
-    #                     points_from_posts REAL DEFAULT 0.0,
-    #                     points_from_likes REAL DEFAULT 0.0,
-    #                     points_from_comments REAL DEFAULT 0.0,
-    #                     points_from_referrals REAL DEFAULT 0.0,
-    #                     points_from_tipping REAL DEFAULT 0.0,
-    #                     one_time_points REAL DEFAULT 0.0,
-    #                     one_time_events TEXT[] DEFAULT ARRAY[]::TEXT[],
-    #                     last_reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    #                     daily_posts_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-    #                     daily_likes_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-    #                     daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-    #                     daily_referrals_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-    #                     daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-    #                 );
-    #             """)
-    #         conn.commit()
-    #     finally:
-    #         self._put_conn(conn)
-    
-    # new changes ../ part 2
-    # In scoring_engine.py
-
-    # ... (imports and class definition) ...
-
     def _initialize_database(self):
         """Creates or updates the user_scores table with all required columns."""
         conn = self._get_conn()
@@ -141,7 +109,6 @@ class ScoringEngine:
     def add_qualitative_post_points(self, user_id: str, text_content: str, image_path: Optional[str], originality_distance: float) -> float:
         conn = self._get_conn()
         try:
-            # --- FIX: Pass the new POST_LIMIT_DAY from the config to the helper function ---
             return self._add_timed_points(
                 conn, user_id, 'posts', 0, config.MAX_MONTHLY_POST_POINTS, config.POST_LIMIT_DAY, 
                 is_post=True, text_content=text_content, image_path=image_path, originality_distance=originality_distance
@@ -166,8 +133,6 @@ class ScoringEngine:
     def add_referral_points(self, user_id: str) -> float:
         conn = self._get_conn()
         try:
-            # Setting daily_max to a very high number effectively disables the daily check for this action
-            # --- FIX: Pass daily_max as a positional argument, not a keyword argument ---
             return self._add_timed_points(conn, user_id, 'referrals', config.POINTS_PER_REFERRAL, config.MAX_MONTHLY_REFERRAL_POINTS, 999999)
         finally:
             self._put_conn(conn)
@@ -175,7 +140,6 @@ class ScoringEngine:
     def add_tipping_points(self, user_id: str) -> float:
         conn = self._get_conn()
         try:
-            # --- FIX: Pass daily_max as a positional argument, not a keyword argument ---
             return self._add_timed_points(conn, user_id, 'tipping', config.POINTS_FOR_TIPPING, config.MAX_MONTHLY_TIPPING_POINTS, 999999)
         finally:
             self._put_conn(conn)
@@ -224,7 +188,6 @@ class ScoringEngine:
                     # Calculate the final points for this specific post
                     points_to_add = config.POINTS_PER_POST + quality_bonus + originality_bonus
                     print(f"Qualitative Score Breakdown: Base({config.POINTS_PER_POST}) + Quality({quality_bonus:.2f}) + Originality({originality_bonus:.2f}) = {points_to_add:.2f}")
-                # --- FIX END ---
 
                 new_timestamps = recent_timestamps + [now]
                 cur.execute(f"""
