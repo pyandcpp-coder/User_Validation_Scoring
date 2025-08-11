@@ -37,7 +37,7 @@ services:
     restart: on-failure:0
     environment:
       ENABLE_CUDA: '0'
-
+  # --- APPLICATION SERVICES ---
   api:
     build: .
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
@@ -50,12 +50,13 @@ services:
       - postgres
       - redis
       - weaviate
+    # This block now uses variables from the .env file
     environment:
       - POSTGRES_HOST=postgres
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - WEAVIATE_HOST=weaviate
-      - OLLAMA_HOST_URL=http://host.docker.internal:11434
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - WEAVIATE_HOST=${WEAVIATE_HOST}
+      - OLLAMA_HOST_URL=${OLLAMA_HOST_URL}
 
   worker:
     build: .
@@ -67,12 +68,15 @@ services:
       - postgres
       - redis
       - weaviate
+    # This block now uses variables from the .env file
     environment:
       - POSTGRES_HOST=postgres
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - WEAVIATE_HOST=weaviate
-      - OLLAMA_HOST_URL=http://host.docker.internal:11434
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - WEAVIATE_HOST=${WEAVIATE_HOST}
+      - OLLAMA_HOST_URL=${OLLAMA_HOST_URL}
+
+  # The scheduler service
   beat:
     build: .
     command: celery -A celery_worker beat --loglevel=info
@@ -82,10 +86,11 @@ services:
     depends_on:
       - redis
       - postgres
+    # This block now uses variables from the .env file
     environment:
       - POSTGRES_HOST=postgres
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
 
 volumes:
   postgres_data:

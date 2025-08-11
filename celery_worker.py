@@ -16,13 +16,13 @@ celery_app.conf.beat_schedule = {
     'run-daily-user-analysis': {
         'task': 'daily_empathy_analysis_task',
         # 'schedule': 86400.0,  # 86400 seconds = 24 hours
-        
+        'schedule': 240.0,  # 240 seconds = 4 minutes for testing
         # For testing, you can set a shorter schedule, e.g., 60.0 for every minute
-        'schedule': 200.0,
-    },
+        # 'schedule': 200.0,n
+    }
 }
 celery_app.conf.timezone = 'UTC'
-# --- END NEW SECTION ---
+
 
 
 @celery_app.task(name="process_and_score_post_task")

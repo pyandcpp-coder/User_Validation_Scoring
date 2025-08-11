@@ -11,6 +11,10 @@ from typing import Optional, Annotated
 from celery_worker import validate_and_score_comment_task
 from celery_worker import process_and_score_post_task
 from core.scoring_engine import ScoringEngine
+from core.historical_analyzer import HistoricalAnalyzer
+from datetime import datetime, timezone, timedelta
+from fastapi.middleware.cors import CORSMiddleware
+
 
 
 class InteractionModel(BaseModel):
@@ -164,10 +168,12 @@ def weaviate_health_check():
     except Exception as e:
         return {"status": "error", "details": str(e)}
 
+# Key changes to add to your main.py in the handle_synchronous_action function
+
 @app.post("/v1/submit_action", tags=["Synchronous Actions"])
 async def handle_synchronous_action(request: BlockchainRequestModel):
     """
-    Handles simple, fast, JSON-only interactions like 'like', 'comment', 'referral', and 'tipping'.
+    Handles simple, fast, JSON-only interactions like 'like', 'comment', 'referral', 'tipping', and 'crypto'.
     
     UNIVERSAL PRIMARY KEY LOGIC:
     - interactorAddress is ALWAYS the wallet that receives rewards
@@ -217,8 +223,8 @@ async def handle_synchronous_action(request: BlockchainRequestModel):
                 content={"status": "processing", "message": "Comment accepted for validation and scoring."}
             )
         
-        # Handle synchronous actions
-        elif interaction_type in ["like", "tipping", "referral"]:
+        # Handle synchronous actions - UPDATED TO INCLUDE CRYPTO
+        elif interaction_type in ["like", "tipping", "referral", "crypto"]:
             print(f"API: Processing synchronous '{interaction_type}' for user {user_id}.")
             
             # Award points - ALL go to interactorAddress
@@ -229,6 +235,8 @@ async def handle_synchronous_action(request: BlockchainRequestModel):
                 points_awarded = engine.add_referral_points(user_id)
             elif interaction_type == "tipping":
                 points_awarded = engine.add_tipping_points(user_id)
+            elif interaction_type == "crypto":  # NEW CRYPTO HANDLING
+                points_awarded = engine.add_crypto_points(user_id)
             
             final_score = engine.get_final_score(user_id)
             
@@ -350,3 +358,319 @@ async def handle_post_submission(
         status_code=202,
         content={"status": "processing", "message": "Post accepted for validation and scoring. Result will be sent to webhook."}
     )
+# Updated admin endpoints in main.py for category-wise analysis
+
+@app.post("/admin/run-daily-analysis", tags=["Admin"])
+def run_daily_analysis():
+    """
+    Manually trigger the category-wise daily user analysis and reward distribution.
+    This will:
+    1. Analyze each category (posts, likes, comments, crypto, tipping, referrals) independently
+    2. Award qualified users for each category they meet requirements for
+    3. Calculate category-specific empathy scores for non-qualified users
+    4. Award top 10% of non-qualified users per category (empathy rewards)
+    5. Make API calls to distribute category-wise rewards
+    """
+    try:
+        analyzer = HistoricalAnalyzer()
+        print(f"Starting category-wise daily analysis at {datetime.now(timezone.utc)}")
+        
+        category_results = analyzer.analyze_and_reward_users()
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "message": "Category-wise daily analysis completed and API calls made for reward distribution",
+            "analysis_type": "category_based",
+            "results": category_results,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in category-wise daily analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+        )
+
+@app.get("/admin/daily-summary", tags=["Admin"])
+def get_daily_summary():
+    """
+    Get a category-wise summary of today's user activity and potential rewards without making API calls.
+    Shows qualification status and empathy candidates for each category independently.
+    """
+    try:
+        analyzer = HistoricalAnalyzer()
+        summary = analyzer.get_daily_summary()
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "data": summary,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR getting category-wise daily summary: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+        )
+# Fixed admin endpoints for main.py - corrected configuration import and schema issues
+
+# Final fix for the admin endpoint in main.py - correct datetime import issue
+
+@app.get("/admin/user-activity/{user_id}", tags=["Admin"])
+def get_user_activity(user_id: str):
+    """
+    Get detailed category-wise activity information for a specific user.
+    Shows their qualification status and potential empathy eligibility for each category.
+    """
+    try:
+        if not engine:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Scoring engine not initialized"}
+            )
+        
+        # Import config here to avoid circular imports
+        from core import scoring_config as config
+        # Fix datetime import issue
+        from datetime import datetime, timezone, timedelta
+        
+        conn = engine._get_conn()
+        try:
+            with conn.cursor() as cur:
+                # First check if user exists
+                cur.execute("SELECT user_id FROM user_scores WHERE user_id = %s;", (user_id,))
+                if not cur.fetchone():
+                    return JSONResponse(
+                        status_code=404,
+                        content={"error": f"User {user_id} not found"}
+                    )
+                
+                # Get user data with proper column handling
+                cur.execute("""
+                    SELECT 
+                        user_id, last_active_date, consecutive_activity_days, historical_engagement_score,
+                        points_from_posts, points_from_likes, points_from_comments, 
+                        points_from_referrals, points_from_tipping, 
+                        COALESCE(points_from_crypto, 0) as points_from_crypto,
+                        daily_posts_timestamps, daily_likes_timestamps, daily_comments_timestamps,
+                        daily_referrals_timestamps, daily_tipping_timestamps,
+                        COALESCE(daily_crypto_timestamps, ARRAY[]::TIMESTAMPTZ[]) as daily_crypto_timestamps
+                    FROM user_scores 
+                    WHERE user_id = %s;
+                """, (user_id,))
+                
+                user_data = cur.fetchone()
+                if not user_data:
+                    return JSONResponse(
+                        status_code=404,
+                        content={"error": f"User {user_id} not found"}
+                    )
+                
+                (user_id, last_active_date, streak, hist_score, p_posts, p_likes, p_comments, 
+                 p_referrals, p_tipping, p_crypto, post_ts, like_ts, comment_ts, 
+                 referral_ts, tipping_ts, crypto_ts) = user_data
+                
+                # Calculate today's activity for each category - FIXED DATETIME USAGE
+                now = datetime.now(timezone.utc)
+                twenty_four_hours_ago = now - timedelta(hours=24)
+                
+                posts_today = len([ts for ts in (post_ts or []) if ts > twenty_four_hours_ago])
+                likes_today = len([ts for ts in (like_ts or []) if ts > twenty_four_hours_ago])
+                comments_today = len([ts for ts in (comment_ts or []) if ts > twenty_four_hours_ago])
+                crypto_today = len([ts for ts in (crypto_ts or []) if ts > twenty_four_hours_ago])
+                tipping_today = len([ts for ts in (tipping_ts or []) if ts > twenty_four_hours_ago])
+                referrals_today = len([ts for ts in (referral_ts or []) if ts > twenty_four_hours_ago])
+                
+                # Check qualification for each category with safe config access
+                category_status = {
+                    "posts": {
+                        "activity_today": posts_today,
+                        "required_for_qualification": getattr(config, 'POST_LIMIT_DAY', 2),
+                        "qualified": posts_today >= getattr(config, 'POST_LIMIT_DAY', 2),
+                        "monthly_points": p_posts or 0,
+                        "monthly_limit": getattr(config, 'MAX_MONTHLY_POST_POINTS', 30)
+                    },
+                    "likes": {
+                        "activity_today": likes_today,
+                        "required_for_qualification": getattr(config, 'LIKE_LIMIT_DAY', 5),
+                        "qualified": likes_today >= getattr(config, 'LIKE_LIMIT_DAY', 5),
+                        "monthly_points": p_likes or 0,
+                        "monthly_limit": getattr(config, 'MAX_MONTHLY_LIKE_POINTS', 15)
+                    },
+                    "comments": {
+                        "activity_today": comments_today,
+                        "required_for_qualification": getattr(config, 'COMMENT_LIMIT_DAY', 5),
+                        "qualified": comments_today >= getattr(config, 'COMMENT_LIMIT_DAY', 5),
+                        "monthly_points": p_comments or 0,
+                        "monthly_limit": getattr(config, 'MAX_MONTHLY_COMMENT_POINTS', 15)
+                    },
+                    "crypto": {
+                        "activity_today": crypto_today,
+                        "required_for_qualification": getattr(config, 'CRYPTO_LIMIT_DAY', 3),
+                        "qualified": crypto_today >= getattr(config, 'CRYPTO_LIMIT_DAY', 3),
+                        "monthly_points": p_crypto or 0,
+                        "monthly_limit": getattr(config, 'MAX_MONTHLY_CRYPTO_POINTS', 20)
+                    },
+                    "tipping": {
+                        "activity_today": tipping_today,
+                        "required_for_qualification": getattr(config, 'TIPPING_LIMIT_DAY', 1),
+                        "qualified": tipping_today >= getattr(config, 'TIPPING_LIMIT_DAY', 1),
+                        "monthly_points": p_tipping or 0,
+                        "monthly_limit": getattr(config, 'MAX_MONTHLY_TIPPING_POINTS', 20)
+                    },
+                    "referrals": {
+                        "activity_today": referrals_today,
+                        "required_for_qualification": getattr(config, 'REFERRAL_LIMIT_DAY', 1),
+                        "qualified": referrals_today >= getattr(config, 'REFERRAL_LIMIT_DAY', 1),
+                        "monthly_points": p_referrals or 0,
+                        "monthly_limit": getattr(config, 'MAX_MONTHLY_REFERRAL_POINTS', 10)
+                    }
+                }
+                
+                # Calculate final score
+                final_score = engine.get_final_score(user_id)
+                
+                # Count qualified categories
+                qualified_categories = [cat for cat, status in category_status.items() if status["qualified"]]
+                
+                return {
+                    "status": "success",
+                    "user_id": user_id,
+                    "analysis_type": "category_based",
+                    "category_breakdown": category_status,
+                    "summary": {
+                        "qualified_categories": qualified_categories,
+                        "qualified_count": len(qualified_categories),
+                        "total_categories": len(category_status),
+                        "final_score": round(final_score, 4)
+                    },
+                    "engagement_data": {
+                        "consecutive_activity_days": streak or 0,
+                        "historical_engagement_score": hist_score or 0,
+                        "last_active_date": last_active_date.isoformat() if last_active_date else None
+                    },
+                    "reward_eligibility": {
+                        "qualified_for_regular_rewards": qualified_categories,
+                        "eligible_for_empathy_rewards": [
+                            cat for cat, status in category_status.items() 
+                            if not status["qualified"] and status["monthly_points"] > 0
+                        ]
+                    }
+                }
+                
+        finally:
+            engine._put_conn(conn)
+            
+    except Exception as e:
+        print(f"ERROR getting user activity for {user_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+        )
+@app.get("/admin/category-summary", tags=["Admin"])
+def get_category_summary():
+    """
+    Get a summary of all categories and their requirements.
+    Useful for understanding the qualification criteria for each category.
+    """
+    try:
+        # Import config here to avoid circular imports
+        from core import scoring_config as config
+        
+        # Define categories with safe config access
+        categories = {
+            'posts': {
+                'name': 'Content Creation Rewards',
+                'description': 'Rewards for users who create quality posts',
+                'daily_requirement': getattr(config, 'POST_LIMIT_DAY', 2),
+                'point_value': getattr(config, 'POINTS_PER_POST', 0.5)
+            },
+            'likes': {
+                'name': 'Engagement Rewards', 
+                'description': 'Rewards for users who actively like content',
+                'daily_requirement': getattr(config, 'LIKE_LIMIT_DAY', 5),
+                'point_value': getattr(config, 'POINTS_PER_LIKE', 0.1)
+            },
+            'comments': {
+                'name': 'Discussion Rewards',
+                'description': 'Rewards for users who participate in discussions',
+                'daily_requirement': getattr(config, 'COMMENT_LIMIT_DAY', 5),
+                'point_value': getattr(config, 'POINTS_PER_COMMENT', 0.1)
+            },
+            'crypto': {
+                'name': 'Crypto Activity Rewards',
+                'description': 'Rewards for users who perform crypto transactions',
+                'daily_requirement': getattr(config, 'CRYPTO_LIMIT_DAY', 3),
+                'point_value': getattr(config, 'POINTS_FOR_CRYPTO', 0.5)
+            },
+            'tipping': {
+                'name': 'Community Support Rewards',
+                'description': 'Rewards for users who tip other community members',
+                'daily_requirement': getattr(config, 'TIPPING_LIMIT_DAY', 1),
+                'point_value': getattr(config, 'POINTS_FOR_TIPPING', 0.5)
+            },
+            'referrals': {
+                'name': 'Growth Rewards',
+                'description': 'Rewards for users who bring new members to the community',
+                'daily_requirement': getattr(config, 'REFERRAL_LIMIT_DAY', 1),
+                'point_value': getattr(config, 'POINTS_PER_REFERRAL', 10)
+            }
+        }
+        
+        return {
+            "status": "success",
+            "analysis_type": "category_based",
+            "categories": categories,
+            "empathy_config": {
+                "percentage_selected": getattr(config, 'REWARD_PERCENTAGE_OF_INACTIVE', 0.10),
+                "description": "Top 10% of non-qualified users per category receive empathy rewards"
+            },
+            "monthly_limits": {
+                "posts": getattr(config, 'MAX_MONTHLY_POST_POINTS', 30),
+                "likes": getattr(config, 'MAX_MONTHLY_LIKE_POINTS', 15),
+                "comments": getattr(config, 'MAX_MONTHLY_COMMENT_POINTS', 15),
+                "crypto": getattr(config, 'MAX_MONTHLY_CRYPTO_POINTS', 20),
+                "tipping": getattr(config, 'MAX_MONTHLY_TIPPING_POINTS', 20),
+                "referrals": getattr(config, 'MAX_MONTHLY_REFERRAL_POINTS', 10),
+                "total_possible": getattr(config, 'TOTAL_POSSIBLE_MONTHLY_POINTS', 110)
+            }
+        }
+        
+    except Exception as e:
+        print(f"ERROR getting category summary: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+        )

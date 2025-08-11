@@ -36,7 +36,7 @@ class ScoringEngine:
         self.db_pool.putconn(conn)
 
     def _initialize_database(self):
-        """Creates or updates the user_scores table with all required columns."""
+        """Creates or updates the user_scores table with all required columns including crypto."""
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
@@ -49,6 +49,7 @@ class ScoringEngine:
                         points_from_comments REAL DEFAULT 0.0,
                         points_from_referrals REAL DEFAULT 0.0,
                         points_from_tipping REAL DEFAULT 0.0,
+                        points_from_crypto REAL DEFAULT 0.0,
                         one_time_points REAL DEFAULT 0.0,
                         one_time_events TEXT[] DEFAULT ARRAY[]::TEXT[],
                         last_reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -57,8 +58,7 @@ class ScoringEngine:
                         daily_comments_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_referrals_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         daily_tipping_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
-
-                        -- NEW COLUMNS FOR HISTORICAL ANALYSIS --
+                        daily_crypto_timestamps TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[],
                         last_active_date DATE,
                         consecutive_activity_days INTEGER DEFAULT 0,
                         historical_engagement_score REAL DEFAULT 0.0
@@ -83,7 +83,9 @@ class ScoringEngine:
         columns_to_add = {
             "last_active_date": "DATE",
             "consecutive_activity_days": "INTEGER DEFAULT 0",
-            "historical_engagement_score": "REAL DEFAULT 0.0"
+            "historical_engagement_score": "REAL DEFAULT 0.0",
+            "points_from_crypto": "REAL DEFAULT 0.0",  
+            "daily_crypto_timestamps": "TIMESTAMPTZ[] DEFAULT ARRAY[]::TIMESTAMPTZ[]"  
         }
 
         with conn.cursor() as cur:
@@ -105,7 +107,7 @@ class ScoringEngine:
         with conn.cursor() as cur:
             cur.execute("INSERT INTO user_scores (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
 
-
+    # Existing methods remain the same...
     def add_qualitative_post_points(self, user_id: str, text_content: str, image_path: Optional[str], originality_distance: float) -> float:
         conn = self._get_conn()
         try:
@@ -141,6 +143,15 @@ class ScoringEngine:
         conn = self._get_conn()
         try:
             return self._add_timed_points(conn, user_id, 'tipping', config.POINTS_FOR_TIPPING, config.MAX_MONTHLY_TIPPING_POINTS, 999999)
+        finally:
+            self._put_conn(conn)
+
+    # NEW METHOD: Add crypto interaction points
+    def add_crypto_points(self, user_id: str) -> float:
+        """Award points for crypto-related interactions (trading, staking, etc.)."""
+        conn = self._get_conn()
+        try:
+            return self._add_timed_points(conn, user_id, 'crypto', config.POINTS_FOR_CRYPTO, config.MAX_MONTHLY_CRYPTO_POINTS, config.CRYPTO_LIMIT_DAY)
         finally:
             self._put_conn(conn)
 
@@ -217,7 +228,8 @@ class ScoringEngine:
             self._ensure_user_exists(conn, user_id)
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT points_from_posts, points_from_likes, points_from_comments, points_from_referrals, points_from_tipping 
+                    SELECT points_from_posts, points_from_likes, points_from_comments, 
+                           points_from_referrals, points_from_tipping, points_from_crypto 
                     FROM user_scores WHERE user_id = %s;
                 """, (user_id,))
                 record = cur.fetchone()
@@ -231,6 +243,7 @@ class ScoringEngine:
                 return max(0.0, min(normalized_score, 100.0))
         finally:
             self._put_conn(conn)
+            
     def close(self):
         if self.db_pool:
             self.db_pool.closeall()

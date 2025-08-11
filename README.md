@@ -1,178 +1,338 @@
-# Intelligent Scoring & Validation Service
+# Intelligent Category-wise Scoring & Validation Service
 
-This project is a comprehensive, production-grade backend service designed to intelligently score and validate user-generated content for a decentralized application. It uses a sophisticated, multi-stage AI pipeline to ensure content quality and originality, and a robust, asynchronous architecture to handle requests at scale.
+A production-grade backend service that intelligently scores and validates user-generated content using AI, with **category-wise qualification system** for flexible user rewards.
 
-## Table of Contents
+## 🎯 Core Features
 
-1.  [Core Concepts & Architecture](#core-concepts--architecture)
-2.  [Project Structure](#project-structure)
-3.  [File-by-File Explanation](#file-by-file-explanation)
-4.  [Technology Stack](#technology-stack)
-5.  [The Scoring System Explained](#the-scoring-system-explained)
-6.  [API Endpoints](#api-endpoints)
-7.  [How to Run the Project](#how-to-run-the-project)
-    *   [Prerequisites](#prerequisites)
-    *   [Local Development Setup](#local-development-setup)
-    *   [Production Setup with Docker Compose](#production-setup-with-docker-compose)
-8.  [How to Test the System](#how-to-test-the-system)
-9.  [Workflow Diagram Prompt](#workflow-diagram-prompt)
-10. [Future To-Do's & Improvements](#future-to-dos--improvements)
+### **Category-wise Qualification System**
+Instead of requiring users to complete ALL daily activities, users can now qualify for rewards in **individual categories**:
 
-## Core Concepts & Architecture
+- **📝 Posts:** Create 2 quality posts → qualify for post rewards
+- **👍 Likes:** Give 5 likes → qualify for like rewards  
+- **💬 Comments:** Make 5 comments → qualify for comment rewards
+- **🪙 Crypto:** Complete 3 crypto transactions → qualify for crypto rewards
+- **💰 Tipping:** Make 1 tip → qualify for tipping rewards
+- **🤝 Referrals:** Refer 1 person → qualify for referral rewards
 
-The entire system is built on a **Service-Oriented Architecture (SOA)** and designed to be **asynchronous** to handle slow AI processing without degrading user experience.
+### **Empathy Reward System**
+- Users who don't qualify in a category can still receive **empathy rewards**
+- Top 10% of non-qualified users per category get empathy rewards based on historical engagement
+- Fair distribution ensures loyal users are recognized
 
-The core workflow is as follows:
-1.  **Request Ingestion:** A client (e.g., the blockchain team's main application) sends a user "interaction" (like a post, like, or comment) to our **FastAPI** server.
-2.  **Interaction Routing:** The API server intelligently routes the request to one of two specialized endpoints.
-    *   **Fast, Synchronous Actions** (`/v1/submit_action`): For simple interactions like 'like' or 'comment', the API processes the request immediately. The `ScoringEngine` updates the user's score in the **PostgreSQL** database, and a final JSON response is sent back instantly.
-    *   **Slow, Asynchronous Actions** (`/v1/submit_post`): For complex interactions like a new post that requires AI analysis, the API places a "job" onto a **Redis** queue and immediately responds to the client with a `202 Accepted` status.
-3.  **Background AI Processing:** A separate **Celery Worker** process is constantly listening to the Redis queue. It picks up the job and begins the heavy lifting:
-    *   **Validation:** The `ContentValidator` checks the post for gibberish and uses a **Weaviate** vector database to check for plagiarism/duplicates.
-    *   **Qualitative Scoring:** If the post is valid, the `OllamaQualityScorer` sends the content to a local **LLM (`qwen2.5vl`)** to get a quality rating.
-    *   **Database Update:** The `ScoringEngine` calculates the final `significanceScore` and updates the user's record in the **PostgreSQL** database.
-4.  **Webhook Callback:** Once the background job is complete (whether it succeeded or failed), the Celery worker sends the final, detailed `AIResponse` JSON to a `webhookUrl` that was provided in the initial request. This informs the client application of the outcome.
+### **AI-Powered Content Validation**
+- **Gibberish Detection:** Multi-layered approach (rule-based, statistical, ML)
+- **Duplicate Detection:** Vector-based similarity using Weaviate database
+- **Quality Scoring:** Local LLM (qwen2.5vl) rates content quality 0-10
+- **Originality Bonus:** More unique content gets higher points
 
-This architecture ensures the system is **scalable** (you can add more Celery workers to handle more load), **resilient** (the Redis queue ensures jobs aren't lost if a worker restarts), and **performant** (the user gets an instant response for slow tasks).
+## 🏗️ Architecture
 
-## File-by-File Explanation
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Client App    │───▶│   FastAPI Server │───▶│  Celery Worker  │
+│  (Blockchain)   │    │                  │    │   (AI Engine)   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │                        │
+                                ▼                        ▼
+                       ┌─────────────────┐    ┌─────────────────┐
+                       │   PostgreSQL    │    │    Weaviate     │
+                       │  (User Scores)  │    │  (Embeddings)   │
+                       └─────────────────┘    └─────────────────┘
+                                │                        │
+                                ▼                        ▼
+                       ┌─────────────────┐    ┌─────────────────┐
+                       │     Redis       │    │     Ollama      │
+                       │ (Task Queue)    │    │  (Local LLM)    │
+                       └─────────────────┘    └─────────────────┘
+```
 
--   **`api/main.py`**: This is the front door to the application. It uses the FastAPI framework to define two main endpoints: `/v1/submit_action` for fast, synchronous tasks and `/v1/submit_post` for slow, asynchronous tasks. It is responsible for receiving HTTP requests, validating the input using Pydantic models, and either processing the request directly or delegating it to the Celery worker.
+## 📊 Scoring System
 
--   **`celery_worker.py`**: This file defines the background worker. It configures Celery to use Redis as a message broker. The single task, `process_and_score_post_task`, contains the full pipeline for handling a new post: it calls the validator, then the scorer, and finally sends the result to a webhook. Instantiating services *inside* the task ensures process safety.
+### **Monthly Point Distribution (Total: 110 points)**
+| Category | Max Points | Percentage | Daily Requirement |
+|----------|------------|------------|-------------------|
+| Posts | 30 | 27.3% | 2 posts/day |
+| Crypto | 20 | 18.2% | 3 transactions/day |
+| Tipping | 20 | 18.2% | 1 tip/day |
+| Likes | 15 | 13.6% | 5 likes/day |
+| Comments | 15 | 13.6% | 5 comments/day |
+| Referrals | 10 | 9.1% | 1 referral/day |
 
--   **`core/ai_validator.py`**: This module contains the `ContentValidator` class, which acts as the first line of defense for content quality.
-    -   It connects to the **Weaviate** vector database.
-    -   It performs a multi-layered gibberish check (rule-based, statistical, and ML-based).
-    -   Its most critical function is `check_for_duplicates`, which uses Weaviate's `near_text` search to find and reject plagiarized or very similar content.
+### **Final Score Calculation**
+```
+Final Score = (User's Total Points / 110) × 100
+```
 
--   **`core/ollama_scorer.py`**: This module's `OllamaQualityScorer` class is responsible for the qualitative AI analysis.
-    -   It connects to a locally running **Ollama** server.
-    -   Its `get_quality_score` method sends the post's text (and optionally an image) to the `qwen2.5vl` model with a carefully engineered prompt.
-    -   It includes robust error handling and a retry mechanism to deal with slow LLM responses.
+### **Post Quality Scoring**
+```
+Post Points = Base (0.5) + Quality Bonus (0-1.0) + Originality Bonus (0-0.25)
+```
 
--   **`core/scoring_engine.py`**: The `ScoringEngine` is the system's accountant.
-    -   It connects to the **PostgreSQL** database and manages the `user_scores` table.
-    -   It contains methods for every scoring action (`add_like_points`, `add_qualitative_post_points`, etc.). Each method performs a direct, atomic transaction with the database to ensure data integrity.
-    -   It calculates the final normalized 0-100 score.
-
--   **`core/scoring_config.py`**: A centralized configuration file. All magic numbers (point values, monthly caps, etc.) are stored here. Changing a scoring rule is as simple as changing a value in this file.
-
--   **`docker-compose.yml`**: The production deployment manifest. It defines all the services needed to run the application (Postgres, Redis, Weaviate, the API, the Worker) and how they connect to each other.
-
--   **`Dockerfile`**: A standard recipe to build a production-ready, portable container image of the Python application, ensuring all dependencies are included.
-
-## Technology Stack
-
--   **Application Framework:** **FastAPI** for its high performance and automatic OpenAPI documentation.
--   **Asynchronous Task Queue:** **Celery** with a **Redis** broker for offloading slow AI tasks and ensuring a responsive API.
--   **Vector Database:** **Weaviate** for storing content embeddings and performing high-speed semantic similarity searches for duplicate/plagiarism detection.
--   **Relational Database:** **PostgreSQL** for persistent, transactional storage of all user scores.
--   **Local LLM Server:** **Ollama** for serving the `qwen2.5vl` multimodal model locally, enabling powerful qualitative content analysis without relying on external APIs.
--   **Containerization:** **Docker** and **Docker Compose** for creating a reproducible and easily deployable production environment.
-
-## The Scoring System Explained
-
-The scoring system is designed to be fair, transparent, and resistant to "gaming". It consists of two parts:
-
-### 1. The 0-100 Normalized Monthly Score
-
-This score reflects a user's engagement over a single month. It is calculated as a percentage of the total possible points earnable in that month.
-
--   **`TOTAL_POSSIBLE_MONTHLY_POINTS`**: This is the "perfect score" for a month, defined in `scoring_config.py`. It is currently **90**.
-    -   Posts: 30 points max
-    -   Likes: 15 points max
-    -   Comments: 15 points max
-    -   Referrals: 10 points max
-    -   Tipping: 20 points max
--   **Calculation:** `Final Score = (User's Raw Monthly Points / 90) * 100`
-
-### 2. Qualitative Post Scoring
-
-Instead of a fixed value, each post's score (`significanceScore`) is calculated dynamically:
-
--   **Originality Score (40% weight):** Based on the vector distance to the most similar existing post in Weaviate. A more unique post gets more points.
--   **Quality Score (60% weight):** Based on a 0-10 rating from the Ollama LLM, which analyzes the post's effort, creativity, and clarity.
--   **Max Points:** A perfect post (max originality, 10/10 quality) earns **2.5 points**.
-
-## API Endpoints
-
-The service exposes two primary endpoints:
-
-### `POST /v1/submit_action`
-
--   **Purpose:** For simple, fast, synchronous interactions.
--   **Content-Type:** `application/json`
--   **Request Body:** A raw `BlockchainRequestModel` JSON object.
--   **Response:** An immediate `200 OK` with the final `AIResponse` JSON containing the points awarded and the user's new total score.
-
-### `POST /v1/submit_post`
-
--   **Purpose:** For complex, slow, asynchronous post submissions that may include an image.
--   **Content-Type:** `multipart/form-data`
--   **Request Body:**
-    -   A form field named `request` containing the `BlockchainRequestModel` as a JSON string.
-    -   An optional form field named `image` containing the image file.
--   **Response:**
-    -   An immediate `202 Accepted` to confirm the job was queued.
-    -   The final `AIResponse` JSON is sent later to the `webhookUrl` provided in the request.
-
-## How to Run the Project
+## 🚀 Quick Start
 
 ### Prerequisites
+- Docker & Docker Compose
+- Python 3.11+
+- Ollama with qwen2.5vl model
 
--   Docker & Docker Compose
--   Python 3.11+
--   Ollama installed and running (`ollama run qwen2.5vl`)
+### Installation
 
-### Local Development Setup
+1. **Clone and Setup**
+   ```bash
+   git clone <repository>
+   cd User_Validation_Scoring
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-This setup is for testing the Python code directly without full containerization.
+2. **Start Infrastructure**
+   ```bash
+   docker-compose up -d postgres redis weaviate multi2vec-clip
+   ```
 
-1.  **Start Infrastructure:**
-    ```bash
-    docker-compose up -d postgres redis weaviate multi2vec-clip
-    ```
-2.  **Start Celery Worker:**
-    ```bash
-    celery -A celery_worker.celery_app worker --loglevel=info
-    ```
-3.  **Start API Server:**
-    ```bash
-    uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
-    ```
+3. **Install Ollama Model**
+   ```bash
+   ollama pull qwen2.5vl
+   ollama run qwen2.5vl  # Keep running in separate terminal
+   ```
 
-### Production Setup with Docker Compose
+4. **Start Services**
+   ```bash
+   # Terminal 1: Start Celery Worker
+   celery -A celery_worker worker --loglevel=info
+   
+   # Terminal 2: Start API Server
+   uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+   
+   # Terminal 3: Start Scheduler (Optional)
+   celery -A celery_worker beat --loglevel=info
+   ```
 
-This is the recommended method. It builds and runs the entire application stack with a single command. **Before running, you must update the code to use Docker service names instead of `localhost` for inter-container communication.**
+5. **Verify Setup**
+   ```bash
+   curl http://localhost:8000/health
+   curl http://localhost:8000/admin/category-summary
+   ```
 
-1.  **Build and Run:**
-    ```bash
-    docker-compose up --build
-    ```
+## 📚 API Endpoints
 
-## How to Test the System
+### **Core Endpoints**
 
-Use the `run_all_tests.py` script for a comprehensive test of all features.
+#### Submit Simple Action (Synchronous)
+```http
+POST /v1/submit_action
+Content-Type: application/json
 
-1.  **Get a Webhook URL:** Go to https://webhook.site and copy your new unique URL.
-2.  **Update the Script:** Paste the URL into the `WEBHOOK_URL` variable in `run_all_tests.py`.
-3.  **Run the Test:**
-    ```bash
-    python run_all_tests.py
-    ```
-## Flow Diagram
-![alt text](utils/image.png)
-**Expected Test Outcomes:**
--   **Like/Comment Tests:** You will see immediate `200 OK` responses in your terminal with the calculated scores.
--   **High-Quality Post Test:** You will get a `202 Accepted` response. The webhook will receive a success JSON with a high `significanceScore` (e.g., > 2.0).
--   **Text-Only Post Test:** You will get a `202 Accepted` response. The webhook will receive a success JSON with a moderate `significanceScore` (e.g., ~1.0).
--   **Duplicate Post Test:** You will get a `202 Accepted` response. The webhook will receive a **failure** JSON with `aiAgentResponseApproved: false`.
+{
+  "creatorAddress": "0x...",
+  "interactorAddress": "0x...",
+  "Interaction": {
+    "interactionType": "like|crypto|tipping|referral",
+    "data": "optional_data"
+  }
+}
+```
 
-## Future To-Do's & Improvements
+#### Submit Post (Asynchronous)
+```http
+POST /v1/submit_post
+Content-Type: multipart/form-data
 
--   [ ] **Configuration Management:** Move all secrets (database passwords, etc.) and connection strings (`localhost`) into environment variables for production security and flexibility.
--   [ ] **Webhook Retries:** Implement a retry mechanism in the Celery worker (e.g., `self.retry(exc=e)`) for when a webhook call fails, to ensure results are not lost.
--   [ ] **Structured Logging:** Replace all `print()` statements with Python's `logging` module to allow for log-level filtering and redirection to file or cloud logging services.
--   [ ] **Scalability Testing:** Use a load testing tool like `locust.io` to benchmark the API and determine how many Celery workers are needed to handle the expected load.
--   [ ] **Monthly Score Reset:** Implement a scheduled job (e.g., a Celery Beat task or a cron job) that runs on the first of every month to reset the monthly point columns (`points_from_posts`, etc.) in the PostgreSQL database.
+creatorAddress: 0x...
+interactorAddress: 0x...
+interactionType: post
+data: "Post content here"
+webhookUrl: https://your-webhook.com/callback
+image: [optional file upload]
+```
+
+### **Admin Endpoints**
+
+#### Get Category Summary
+```http
+GET /admin/category-summary
+```
+
+#### Get Daily Analysis Summary
+```http
+GET /admin/daily-summary
+```
+
+#### Get User Activity
+```http
+GET /admin/user-activity/{wallet_address}
+```
+
+#### Run Daily Analysis
+```http
+POST /admin/run-daily-analysis
+```
+
+## 🧪 Testing
+
+### **Quick Test**
+```bash
+# Test crypto interaction
+curl -X POST http://localhost:8000/v1/submit_action \
+  -H "Content-Type: application/json" \
+  -d '{
+    "creatorAddress": "0x1234567890abcdef1234567890abcdef12345678",
+    "interactorAddress": "0x1234567890abcdef1234567890abcdef12345678",
+    "Interaction": {
+      "interactionType": "crypto",
+      "data": "BTC_TRADE_12345"
+    }
+  }'
+```
+
+### **Comprehensive Test**
+```bash
+python testing/category_test_script.py
+```
+
+## 📈 Daily Analysis Process
+
+### **How Category-wise Analysis Works**
+
+1. **Individual Category Check:** For each category (posts, likes, comments, crypto, tipping, referrals):
+   - Check which users met the daily requirement
+   - Mark them as "qualified" for that specific category
+
+2. **Empathy Selection:** For each category:
+   - Calculate empathy scores for non-qualified users
+   - Select top 10% as empathy recipients
+
+3. **Reward Distribution:** 
+   - Send category-wise API calls with qualified and empathy user lists
+   - Users can qualify for multiple categories simultaneously
+
+### **Example Daily Results**
+```json
+{
+  "posts": {
+    "qualified": ["0x1111...", "0x4444..."],
+    "empathy": ["0x5555..."]
+  },
+  "likes": {
+    "qualified": ["0x2222...", "0x4444..."],
+    "empathy": ["0x1111..."]
+  },
+  "crypto": {
+    "qualified": ["0x3333...", "0x4444..."],
+    "empathy": []
+  }
+}
+```
+
+## 🔧 Configuration
+
+### **Key Settings** (`core/scoring_config.py`)
+```python
+# Daily qualification requirements
+POST_LIMIT_DAY = 2
+LIKE_LIMIT_DAY = 5
+COMMENT_LIMIT_DAY = 5
+CRYPTO_LIMIT_DAY = 3
+TIPPING_LIMIT_DAY = 1
+REFERRAL_LIMIT_DAY = 1
+
+# Point values
+POINTS_PER_POST = 0.5
+POINTS_FOR_CRYPTO = 0.5
+POINTS_FOR_TIPPING = 0.5
+# ... etc
+
+# Empathy reward percentage
+REWARD_PERCENTAGE_OF_INACTIVE = 0.10  # Top 10%
+```
+
+## 🗃️ Database Schema
+
+### **User Scores Table**
+```sql
+CREATE TABLE user_scores (
+    user_id VARCHAR(255) PRIMARY KEY,
+    points_from_posts REAL DEFAULT 0.0,
+    points_from_likes REAL DEFAULT 0.0,
+    points_from_comments REAL DEFAULT 0.0,
+    points_from_referrals REAL DEFAULT 0.0,
+    points_from_tipping REAL DEFAULT 0.0,
+    points_from_crypto REAL DEFAULT 0.0,
+    daily_posts_timestamps TIMESTAMPTZ[],
+    daily_likes_timestamps TIMESTAMPTZ[],
+    daily_comments_timestamps TIMESTAMPTZ[],
+    daily_referrals_timestamps TIMESTAMPTZ[],
+    daily_tipping_timestamps TIMESTAMPTZ[],
+    daily_crypto_timestamps TIMESTAMPTZ[],
+    last_active_date DATE,
+    consecutive_activity_days INTEGER DEFAULT 0,
+    historical_engagement_score REAL DEFAULT 0.0
+);
+```
+
+## 🛠️ Maintenance
+
+### **Database Cleanup**
+```bash
+python clean.py  # Resets all data
+```
+
+### **View Logs**
+```bash
+# API logs
+tail -f api_logs.log
+
+# Celery worker logs
+celery -A celery_worker worker --loglevel=debug
+
+# Docker logs
+docker-compose logs -f api worker
+```
+
+## 🎯 Benefits of Category-wise System
+
+### **Before (All-or-Nothing)**
+- Users needed to complete ALL daily activities to qualify
+- Lower participation rate
+- Users forced into activities they didn't prefer
+
+### **After (Category-wise)**
+- Users qualify independently for each category they're active in
+- Higher participation and engagement
+- Users can focus on preferred activities
+- More flexible and user-friendly
+- Better retention and satisfaction
+
+## 🔮 Production Deployment
+
+### **Docker Compose (Full Stack)**
+```bash
+# Update connection strings in code to use service names
+# postgres -> postgres:5432
+# redis -> redis:6379
+# weaviate -> weaviate:8080
+
+docker-compose up --build
+```
+
+### **Environment Variables**
+```env
+POSTGRES_HOST=postgres
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
+WEAVIATE_HOST=weaviate
+OLLAMA_HOST_URL=http://host.docker.internal:11434
+```
+
+## 📞 Support
+
+- **API Documentation:** http://localhost:8000/docs
+- **Health Check:** http://localhost:8000/health
+- **Category Status:** http://localhost:8000/admin/category-summary
+
+---
+
+## 🎊 Key Achievement: Category-wise Independence
+
+This system revolutionizes user engagement by allowing **independent qualification per category**, making it much more user-friendly and increasing overall participation while maintaining quality standards through AI validation.
