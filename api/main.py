@@ -168,7 +168,7 @@ def weaviate_health_check():
     except Exception as e:
         return {"status": "error", "details": str(e)}
 
-# Key changes to add to your main.py in the handle_synchronous_action function
+# Key changes to add to your main.py in the handle_synchronous_action functi
 
 @app.post("/v1/submit_action", tags=["Synchronous Actions"])
 async def handle_synchronous_action(request: BlockchainRequestModel):
@@ -349,7 +349,7 @@ async def handle_post_submission(
         image_path=image_path,
         webhook_url=request_data.webhookUrl,
         creator_address=request_data.creatorAddress,
-        interactor_address=request_data.interactorAddress
+        interactor_address=request_data.interactorAddress 
     )
     
     print(f"API: Queued 'post' job for user {user_id}. Webhook: {request_data.webhookUrl}")
@@ -430,9 +430,6 @@ def get_daily_summary():
                 "traceback": traceback.format_exc()
             }
         )
-# Fixed admin endpoints for main.py - corrected configuration import and schema issues
-
-# Final fix for the admin endpoint in main.py - correct datetime import issue
 
 @app.get("/admin/user-activity/{user_id}", tags=["Admin"])
 def get_user_activity(user_id: str):
@@ -601,8 +598,6 @@ def get_category_summary():
     try:
         # Import config here to avoid circular imports
         from core import scoring_config as config
-        
-        # Define categories with safe config access
         categories = {
             'posts': {
                 'name': 'Content Creation Rewards',

@@ -150,7 +150,6 @@ class HistoricalAnalyzer:
             print(f"Making category-wise reward API call...")
             print(f"Payload: {json.dumps(payload, indent=2)}")
             
-            # Uncomment when you have the actual API endpoint
             # response = requests.post(
             #     self.reward_api_url,
             #     json=payload,
