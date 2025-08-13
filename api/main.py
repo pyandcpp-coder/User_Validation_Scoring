@@ -669,3 +669,317 @@ def get_category_summary():
                 "traceback": traceback.format_exc()
             }
         )
+    
+# PART 1: Add the missing close() method to your HistoricalAnalyzer class
+
+def close(self):
+    """Closes all connections in the database pool."""
+    if hasattr(self, 'db_pool') and self.db_pool:
+        self.db_pool.closeall()
+        print("HistoricalAnalyzer: DB connection pool closed.")
+
+# PART 2: Updated and fixed API endpoints for main.py
+
+from core.historical_analyzer import HistoricalAnalyzer
+from datetime import datetime, timezone, timedelta
+import math
+
+# Individual category endpoints
+@app.get("/api/rewards/posts", tags=["Category Rewards"])
+def get_post_rewards():
+    """Get qualified and empathy users for POST category."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results("posts")
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "category": "posts",
+            "daily_requirement": 2,
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_post_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": "posts", "error": str(e)}
+        )
+
+@app.get("/api/rewards/likes", tags=["Category Rewards"])
+def get_like_rewards():
+    """Get qualified and empathy users for LIKE category."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results("likes")
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "category": "likes",
+            "daily_requirement": 5,
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_like_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": "likes", "error": str(e)}
+        )
+
+@app.get("/api/rewards/comments", tags=["Category Rewards"])
+def get_comment_rewards():
+    """Get qualified and empathy users for COMMENT category."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results("comments")
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "category": "comments",
+            "daily_requirement": 5,
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_comment_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": "comments", "error": str(e)}
+        )
+
+@app.get("/api/rewards/crypto", tags=["Category Rewards"])
+def get_crypto_rewards():
+    """Get qualified and empathy users for CRYPTO category."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results("crypto")
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "category": "crypto",
+            "daily_requirement": 3,
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_crypto_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": "crypto", "error": str(e)}
+        )
+
+@app.get("/api/rewards/tipping", tags=["Category Rewards"])
+def get_tipping_rewards():
+    """Get qualified and empathy users for TIPPING category."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results("tipping")
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "category": "tipping",
+            "daily_requirement": 1,
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_tipping_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": "tipping", "error": str(e)}
+        )
+
+@app.get("/api/rewards/referrals", tags=["Category Rewards"])
+def get_referral_rewards():
+    """Get qualified and empathy users for REFERRAL category."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results("referrals")
+        analyzer.close()
+        
+        return {
+            "status": "success",
+            "category": "referrals",
+            "daily_requirement": 1,
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_referral_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": "referrals", "error": str(e)}
+        )
+
+# Special endpoint for ALL categories
+@app.get("/api/rewards/all", tags=["Category Rewards"])
+def get_all_category_rewards():
+    """Get qualified and empathy users for ALL categories at once."""
+    try:
+        analyzer = HistoricalAnalyzer()
+        
+        categories = ["posts", "likes", "comments", "crypto", "tipping", "referrals"]
+        all_results = {}
+        
+        for category in categories:
+            try:
+                category_result = analyzer._get_category_results(category)
+                all_results[category] = {
+                    "qualified_users": category_result["qualified"],
+                    "empathy_users": category_result["empathy"],
+                    "qualified_count": len(category_result["qualified"]),
+                    "empathy_count": len(category_result["empathy"])
+                }
+            except Exception as cat_error:
+                print(f"ERROR processing category {category}: {cat_error}")
+                all_results[category] = {
+                    "qualified_users": [],
+                    "empathy_users": [],
+                    "qualified_count": 0,
+                    "empathy_count": 0,
+                    "error": str(cat_error)
+                }
+        
+        analyzer.close()
+        
+        # Calculate totals
+        total_qualified = sum(result["qualified_count"] for result in all_results.values())
+        total_empathy = sum(result["empathy_count"] for result in all_results.values())
+        
+        return {
+            "status": "success",
+            "categories": all_results,
+            "summary": {
+                "total_qualified_across_categories": total_qualified,
+                "total_empathy_across_categories": total_empathy,
+                "categories_analyzed": len(categories)
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_all_category_rewards: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)}
+        )
+
+# UPDATED generic endpoint that handles 'all' specially
+@app.get("/api/rewards/{category}", tags=["Category Rewards"])
+def get_category_rewards(category: str):
+    """Generic endpoint to get qualified and empathy users for any category."""
+    # Special handling for 'all'
+    if category.lower() == "all":
+        return get_all_category_rewards()
+    
+    valid_categories = ["posts", "likes", "comments", "crypto", "tipping", "referrals"]
+    
+    if category.lower() not in valid_categories:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "error": f"Invalid category '{category}'",
+                "valid_categories": valid_categories + ["all"]
+            }
+        )
+    
+    try:
+        analyzer = HistoricalAnalyzer()
+        category_result = analyzer._get_category_results(category.lower())
+        analyzer.close()
+        
+        # Get daily requirement for the category
+        daily_requirements = {
+            "posts": 2,
+            "likes": 5,
+            "comments": 5,
+            "crypto": 3,
+            "tipping": 1,
+            "referrals": 1
+        }
+        
+        return {
+            "status": "success",
+            "category": category.lower(),
+            "daily_requirement": daily_requirements.get(category.lower(), 1),
+            "qualified_users": category_result["qualified"],
+            "empathy_users": category_result["empathy"],
+            "stats": {
+                "qualified_count": len(category_result["qualified"]),
+                "empathy_count": len(category_result["empathy"]),
+                "total_users_analyzed": category_result["total_analyzed"]
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        print(f"ERROR in get_category_rewards for {category}: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "category": category, "error": str(e)}
+        )
