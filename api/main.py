@@ -168,7 +168,7 @@ def weaviate_health_check():
     except Exception as e:
         return {"status": "error", "details": str(e)}
 
-# Key changes to add to your main.py in the handle_synchronous_action functi
+# Key changes to add to your main.py in the handle_synchronous_action function
 
 @app.post("/v1/submit_action", tags=["Synchronous Actions"])
 async def handle_synchronous_action(request: BlockchainRequestModel):
