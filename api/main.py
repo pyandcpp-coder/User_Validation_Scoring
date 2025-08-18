@@ -43,8 +43,6 @@ async def lifespan(app: FastAPI):
         raise
     
     yield
-    
-    # Shutdown
     print("Application shutdown: Closing database connections.")
     if engine:
         engine.close()
