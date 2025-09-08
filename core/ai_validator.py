@@ -7,7 +7,7 @@ import os
 from typing import Optional
 from collections import Counter
 from weaviate.classes.config import Configure, Property, DataType
-
+from weaviate.classes.query import Filter
 
 try:
     gibberish_classifier = pipeline("text-classification", model="unitary/toxic-bert")
@@ -61,6 +61,11 @@ class ContentValidator:
                     text_fields=["content"]
                 ),
                 properties=[
+                    Property(
+                        name="post_id",
+                        data_type=DataType.TEXT,
+                        description="The unique identifier of the post"
+                    ),
                     Property(
                         name="content",
                         data_type=DataType.TEXT,
@@ -315,9 +320,9 @@ class ContentValidator:
             # On error, allow the content through
             return (False, 1.0)
 
-    def process_new_post(self, user_id: str, text_content: str, image_path: Optional[str]) -> tuple[str, float] | None:
+    def process_new_post(self, user_id: str, post_id:str,text_content: str, image_path: Optional[str]) -> tuple[str, float] | None:
         """Main validation pipeline. Returns (post_id, distance) on success."""
-        print(f"\n--- Processing new post for user: {user_id} ---")
+        print(f"\n--- Processing new post {post_id} for user: {user_id} ---")
         if not text_content or self.is_gibberish(text_content):
             print("Post rejected: Content is empty or gibberish.")
             return None
@@ -329,7 +334,7 @@ class ContentValidator:
             
         print("Content is valid and original. Adding to Weaviate.")
         try:
-            post_object = {"content": text_content, "user_id": user_id}
+            post_object = {"post_id":post_id,"content": text_content, "user_id": user_id}
             if image_path:
                 post_object["image"] = self._image_to_base64(image_path)
             
@@ -339,11 +344,43 @@ class ContentValidator:
             
             new_uuid_str = str(post_uuid)
             print(f"Successfully added post to Weaviate with UUID: {new_uuid_str}")
-            return (new_uuid_str, distance)
+            return (post_id, distance)
             
         except Exception as e:
             print(f"Error adding post to Weaviate: {e}")
             return None
+    def delete_post(self, post_id: str, user_id: str) -> bool:
+        """Delete a post from Weaviate by post_id and user_id."""
+        try:
+            posts_collection = self.client.collections.get("Post")
+            
+            # Find the post and verify it belongs to the user
+            result = posts_collection.query.where(
+                Filter.by_property("post_id").equal(post_id) & 
+                Filter.by_property("user_id").equal(user_id)
+            ).with_limit(1).do()  # Remove .do() - it's not needed in newer Weaviate clients
+            
+            # Correct syntax without .do():
+            result = posts_collection.query.where(
+                Filter.by_property("post_id").equal(post_id) & 
+                Filter.by_property("user_id").equal(user_id)
+            ).with_limit(1)
+            
+            if not result.objects:
+                print(f"Post {post_id} not found or doesn't belong to user {user_id}")
+                return False
+            
+            # Get the actual UUID of the post
+            post_uuid = result.objects[0].uuid
+            
+            # Delete the post using its actual UUID
+            posts_collection.data.delete(post_uuid)
+            print(f"Successfully deleted post {post_id} for user {user_id}")
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting post {post_id}: {e}")
+            return False
 
     def close(self):
         """Closes the connection to the Weaviate client."""

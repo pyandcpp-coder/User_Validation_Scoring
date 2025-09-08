@@ -308,6 +308,7 @@ async def handle_post_submission(
     interactionType: str = Form(default="post", description="The type of interaction (should be 'post')"),
     data: str = Form(..., description="The text content of the post"),
     webhookUrl: str = Form(..., description="URL where the validation result will be sent"),
+    post_id: str = Form(..., description="Unique identifier for the post"),
     image: Optional[UploadFile] = File(None, description="Optional image file to attach to the post")
 ):
     """
@@ -343,6 +344,7 @@ async def handle_post_submission(
 
     process_and_score_post_task.delay(
         user_id=user_id,
+        post_id=post_id,
         text_content=request_data.Interaction.data or "",
         image_path=image_path,
         webhook_url=request_data.webhookUrl,
@@ -350,7 +352,7 @@ async def handle_post_submission(
         interactor_address=request_data.interactorAddress 
     )
     
-    print(f"API: Queued 'post' job for user {user_id}. Webhook: {request_data.webhookUrl}")
+    print(f"API: Queued 'post' job for user {user_id} with {post_id}")
     
     return JSONResponse(
         status_code=202,
@@ -397,7 +399,52 @@ def run_daily_analysis():
                 "traceback": traceback.format_exc()
             }
         )
-
+@app.delete("/v1/delete/{post_id}", tags=["Post Management"])
+async def delete_post(
+    post_id: str,
+    user_id: str = Query(..., description="The user ID who owns the post")
+):
+    """
+    Delete a specific post by post_id if it belongs to the user.
+    """
+    try:
+        from core.ai_validator import ContentValidator
+        
+        validator = ContentValidator()
+        success = validator.delete_post(post_id, user_id)
+        validator.close()
+        
+        if success:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "success",
+                    "message": f"Post {post_id} deleted successfully",
+                    "post_id": post_id,
+                    "user_id": user_id
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Post {post_id} not found or doesn't belong to user {user_id}",
+                    "post_id": post_id,
+                    "user_id": user_id
+                }
+            )
+            
+    except Exception as e:
+        print(f"ERROR deleting post {post_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e),
+                "post_id": post_id
+            }
+        )
 @app.get("/admin/daily-summary", tags=["Admin"])
 def get_daily_summary():
     """

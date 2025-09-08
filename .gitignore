@@ -9,3 +9,4 @@ test_image3.png
 python_test.py
 eval "$(ssh-agent -s)"
 eval "$(ssh-agent -s)".pub
+.DS_Store

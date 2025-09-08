@@ -28,6 +28,7 @@ celery_app.conf.timezone = 'UTC'
 @celery_app.task(name="process_and_score_post_task")
 def process_and_score_post_task(
     user_id: str,
+    post_id :str,
     text_content: str,
     image_path: Optional[str],
     webhook_url: str,
@@ -39,7 +40,7 @@ def process_and_score_post_task(
     ai_response = {
         "creatorAddress": creator_address,
         "interactorAddress": interactor_address,
-        "post_id": None,
+        "post_id": post_id,
         "Interaction": {"interactionType": "post", "data": text_content},
         "validation": {"aiAgentResponseApproved": False, "significanceScore": 0.0, "reason": "Processing started"}
     }
@@ -51,9 +52,9 @@ def process_and_score_post_task(
         print(f"WORKER: Starting validation for post from user {user_id}")
         print(f"WORKER: Post content preview: '{text_content[:50]}...'")
         
-        validation_result = validator.process_new_post(user_id, text_content, image_path)
+        validation_result = validator.process_new_post(user_id,post_id, text_content, image_path)
         if validation_result:
-            post_id, originality_distance = validation_result
+            stored_post_id, originality_distance = validation_result
             points_awarded = engine.add_qualitative_post_points(user_id, text_content, image_path, originality_distance)
             ai_response["post_id"] = post_id
             ai_response["validation"]["aiAgentResponseApproved"] = True
