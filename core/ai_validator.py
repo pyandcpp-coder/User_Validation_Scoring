@@ -247,14 +247,17 @@ class ContentValidator:
         try:
             posts_collection = self.client.collections.get("Post")
             
-            # Find the post
-            result = posts_collection.query.where(
-                Filter.by_property("post_id").equal(post_id) & 
-                Filter.by_property("user_id").equal(user_id)
-            ).with_limit(1)
+            # Correct syntax - use 'filters' parameter
+            response = posts_collection.query.fetch_objects(
+                filters=(
+                    Filter.by_property("post_id").equal(post_id) & 
+                    Filter.by_property("user_id").equal(user_id)
+                ),
+                limit=1
+            )
             
-            if result.objects:
-                post_uuid = result.objects[0].uuid
+            if response.objects:
+                post_uuid = response.objects[0].uuid
                 # Update the points
                 posts_collection.data.update(
                     uuid=post_uuid,
@@ -268,7 +271,11 @@ class ContentValidator:
             
         except Exception as e:
             print(f"Error updating post points: {e}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return False
+
+
     def check_for_duplicates(self, text_content: str, image_path: Optional[str], threshold: float = 0.1) -> tuple[bool, float]:
         """
         Enhanced duplicate checking with more reasonable threshold.
@@ -383,50 +390,60 @@ class ContentValidator:
             print(f"Error adding post to Weaviate: {e}")
             return None
         
-
     def get_post_points(self, post_id: str, user_id: str) -> float:
         """Get the points that were awarded for a specific post."""
         try:
             posts_collection = self.client.collections.get("Post")
             
-            result = posts_collection.query.where(
-                Filter.by_property("post_id").equal(post_id) & 
-                Filter.by_property("user_id").equal(user_id)
-            ).with_limit(1)
+            # Correct syntax - use 'filters' parameter
+            response = posts_collection.query.fetch_objects(
+                filters=(
+                    Filter.by_property("post_id").equal(post_id) & 
+                    Filter.by_property("user_id").equal(user_id)
+                ),
+                limit=1
+            )
             
-            if result.objects:
-                return result.objects[0].properties.get("points_awarded", 0)
+            if response.objects:
+                return response.objects[0].properties.get("points_awarded", 0)
             return 0
             
         except Exception as e:
             print(f"Error getting post points: {e}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return 0
-
 
     def delete_post(self, post_id: str, user_id: str) -> bool:
         """Delete a post from Weaviate by post_id and user_id."""
         try:
             posts_collection = self.client.collections.get("Post")
             
-            result = posts_collection.query.where(
-                Filter.by_property("post_id").equal(post_id) & 
-                Filter.by_property("user_id").equal(user_id)
-            ).with_limit(1)
+            # Correct syntax - use 'filters' parameter
+            response = posts_collection.query.fetch_objects(
+                filters=(
+                    Filter.by_property("post_id").equal(post_id) & 
+                    Filter.by_property("user_id").equal(user_id)
+                ),
+                limit=1
+            )
             
-            if not result.objects:
+            if not response.objects:
                 print(f"Post {post_id} not found or doesn't belong to user {user_id}")
                 return False
             
             # Get the actual UUID of the post
-            post_uuid = result.objects[0].uuid
+            post_uuid = response.objects[0].uuid
             
             # Delete the post using its actual UUID
-            posts_collection.data.delete(post_uuid)
+            posts_collection.data.delete_by_id(post_uuid)
             print(f"Successfully deleted post {post_id} for user {user_id}")
             return True
             
         except Exception as e:
             print(f"Error deleting post {post_id}: {e}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return False
 
     def close(self):
