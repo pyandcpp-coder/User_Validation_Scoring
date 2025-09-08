@@ -23,12 +23,10 @@ celery_app.conf.beat_schedule = {
 }
 celery_app.conf.timezone = 'UTC'
 
-
-
 @celery_app.task(name="process_and_score_post_task")
 def process_and_score_post_task(
     user_id: str,
-    post_id :str,
+    post_id: str,
     text_content: str,
     image_path: Optional[str],
     webhook_url: str,
@@ -36,7 +34,7 @@ def process_and_score_post_task(
     interactor_address: Optional[str]
 ):
     """Background task that validates, scores, and sends the final result for a post to a webhook."""
-    print(f"WORKER: Received 'post' job for user {user_id}")
+    print(f"WORKER: Received 'post' job for user {user_id} with post_id {post_id}")
     ai_response = {
         "creatorAddress": creator_address,
         "interactorAddress": interactor_address,
@@ -52,11 +50,20 @@ def process_and_score_post_task(
         print(f"WORKER: Starting validation for post from user {user_id}")
         print(f"WORKER: Post content preview: '{text_content[:50]}...'")
         
-        validation_result = validator.process_new_post(user_id,post_id, text_content, image_path)
+        # First validate with 0 points
+        validation_result = validator.process_new_post(user_id, post_id, text_content, image_path, 0)
+        
         if validation_result:
-            stored_post_id, originality_distance = validation_result
+            # We only need the originality_distance from the result
+            _, originality_distance = validation_result
+            
+            # Calculate the points
             points_awarded = engine.add_qualitative_post_points(user_id, text_content, image_path, originality_distance)
-            ai_response["post_id"] = post_id
+            
+            # Update the post with the actual points awarded
+            validator.update_post_points(post_id, user_id, points_awarded)
+            
+            ai_response["post_id"] = post_id  # Using the input post_id
             ai_response["validation"]["aiAgentResponseApproved"] = True
             ai_response["validation"]["significanceScore"] = round(points_awarded, 4)
             ai_response["validation"]["reason"] = "Content approved and scored."
@@ -64,14 +71,17 @@ def process_and_score_post_task(
         else:
             ai_response["validation"]["reason"] = "Content failed validation (gibberish or duplicate)."
             print(f"WORKER: Post job for user {user_id} failed validation.")
+            
     except Exception as e:
         print(f"WORKER ERROR (Post): An unexpected error occurred for user {user_id}. Details: {e}")
         import traceback
         print(f"WORKER ERROR (Post): Traceback: {traceback.format_exc()}")
         ai_response["validation"]["reason"] = f"An internal error occurred: {e}"
     finally:
-        if validator: validator.close()
-        if engine: engine.close()
+        if validator: 
+            validator.close()
+        if engine: 
+            engine.close()
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
             print(f"WORKER: Cleaned up temp file: {image_path}")

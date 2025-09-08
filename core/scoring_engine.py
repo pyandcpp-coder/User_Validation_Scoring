@@ -243,6 +243,40 @@ class ScoringEngine:
                 return max(0.0, min(normalized_score, 100.0))
         finally:
             self._put_conn(conn)
+    def deduct_post_points(self, user_id: str, points_to_deduct: float) -> bool:
+        """Deduct points from a user's post score when a post is deleted."""
+        conn = self._get_conn()
+        try:
+            self._ensure_user_exists(conn, user_id)
+            with conn.cursor() as cur:
+                # Get current points
+                cur.execute(
+                    "SELECT points_from_posts FROM user_scores WHERE user_id = %s FOR UPDATE;", 
+                    (user_id,)
+                )
+                record = cur.fetchone()
+                current_points = record[0] if record else 0.0
+                
+                # Calculate new points (ensure it doesn't go negative)
+                new_points = max(0.0, current_points - points_to_deduct)
+                
+                # Update the points
+                cur.execute(
+                    "UPDATE user_scores SET points_from_posts = %s WHERE user_id = %s;",
+                    (new_points, user_id)
+                )
+                
+            conn.commit()
+            print(f"Deducted {points_to_deduct:.4f} points from user {user_id}. New post points: {new_points:.4f}")
+            return True
+            
+        except Exception as e:
+            print(f"ERROR deducting points for user {user_id}: {e}")
+            conn.rollback()
+            return False
+            
+        finally:
+            self._put_conn(conn)
             
     def close(self):
         if self.db_pool:

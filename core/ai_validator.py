@@ -49,6 +49,7 @@ class ContentValidator:
         try:
             if self.client.collections.exists("Post"):
                 print("'Post' collection already exists.")
+                # You might want to add migration logic here to add points_awarded field
                 return
             
             print("Creating 'Post' collection in Weaviate...")
@@ -80,6 +81,11 @@ class ContentValidator:
                         name="user_id",
                         data_type=DataType.TEXT,
                         description="The ID of the user who made the post."
+                    ),
+                    Property(
+                        name="points_awarded",  # NEW FIELD
+                        data_type=DataType.NUMBER,
+                        description="Points awarded for this post"
                     )
                 ]
             )
@@ -89,7 +95,7 @@ class ContentValidator:
         except Exception as e:
             print(f"Error setting up schema: {e}")
             raise
-
+        
     def is_gibberish(self, text: str) -> bool:
         """
         Comprehensive gibberish detection using multiple methods.
@@ -236,6 +242,33 @@ class ContentValidator:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode('utf-8')
 
+    def update_post_points(self, post_id: str, user_id: str, points: float) -> bool:
+        """Update the points_awarded field for a post after calculation."""
+        try:
+            posts_collection = self.client.collections.get("Post")
+            
+            # Find the post
+            result = posts_collection.query.where(
+                Filter.by_property("post_id").equal(post_id) & 
+                Filter.by_property("user_id").equal(user_id)
+            ).with_limit(1)
+            
+            if result.objects:
+                post_uuid = result.objects[0].uuid
+                # Update the points
+                posts_collection.data.update(
+                    uuid=post_uuid,
+                    properties={"points_awarded": points}
+                )
+                print(f"Updated post {post_id} with {points} points")
+                return True
+            else:
+                print(f"Post {post_id} not found for user {user_id}")
+                return False
+            
+        except Exception as e:
+            print(f"Error updating post points: {e}")
+            return False
     def check_for_duplicates(self, text_content: str, image_path: Optional[str], threshold: float = 0.1) -> tuple[bool, float]:
         """
         Enhanced duplicate checking with more reasonable threshold.
@@ -320,7 +353,7 @@ class ContentValidator:
             # On error, allow the content through
             return (False, 1.0)
 
-    def process_new_post(self, user_id: str, post_id:str,text_content: str, image_path: Optional[str]) -> tuple[str, float] | None:
+    def process_new_post(self, user_id: str, post_id:str,text_content: str, image_path: Optional[str],points_awarded:float=0) -> tuple[str, float] | None:
         """Main validation pipeline. Returns (post_id, distance) on success."""
         print(f"\n--- Processing new post {post_id} for user: {user_id} ---")
         if not text_content or self.is_gibberish(text_content):
@@ -334,7 +367,7 @@ class ContentValidator:
             
         print("Content is valid and original. Adding to Weaviate.")
         try:
-            post_object = {"post_id":post_id,"content": text_content, "user_id": user_id}
+            post_object = {"post_id":post_id,"content": text_content, "user_id": user_id,"points_awarded":points_awarded}
             if image_path:
                 post_object["image"] = self._image_to_base64(image_path)
             
@@ -349,18 +382,32 @@ class ContentValidator:
         except Exception as e:
             print(f"Error adding post to Weaviate: {e}")
             return None
+        
+
+    def get_post_points(self, post_id: str, user_id: str) -> float:
+        """Get the points that were awarded for a specific post."""
+        try:
+            posts_collection = self.client.collections.get("Post")
+            
+            result = posts_collection.query.where(
+                Filter.by_property("post_id").equal(post_id) & 
+                Filter.by_property("user_id").equal(user_id)
+            ).with_limit(1)
+            
+            if result.objects:
+                return result.objects[0].properties.get("points_awarded", 0)
+            return 0
+            
+        except Exception as e:
+            print(f"Error getting post points: {e}")
+            return 0
+
+
     def delete_post(self, post_id: str, user_id: str) -> bool:
         """Delete a post from Weaviate by post_id and user_id."""
         try:
             posts_collection = self.client.collections.get("Post")
             
-            # Find the post and verify it belongs to the user
-            result = posts_collection.query.where(
-                Filter.by_property("post_id").equal(post_id) & 
-                Filter.by_property("user_id").equal(user_id)
-            ).with_limit(1).do()  # Remove .do() - it's not needed in newer Weaviate clients
-            
-            # Correct syntax without .do():
             result = posts_collection.query.where(
                 Filter.by_property("post_id").equal(post_id) & 
                 Filter.by_property("user_id").equal(user_id)

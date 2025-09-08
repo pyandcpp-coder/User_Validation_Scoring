@@ -399,29 +399,44 @@ def run_daily_analysis():
                 "traceback": traceback.format_exc()
             }
         )
+    
 @app.delete("/v1/delete/{post_id}", tags=["Post Management"])
 async def delete_post(
     post_id: str,
-    user_id: str = Query(..., description="The user ID who owns the post")
+    interactorAddress: str = Query(..., description="The wallet address of the post owner")
 ):
     """
-    Delete a specific post by post_id if it belongs to the user.
+    Delete a specific post by post_id and deduct the associated points.
+    interactorAddress is the user_id in this system.
     """
     try:
         from core.ai_validator import ContentValidator
         
+        # interactorAddress IS the user_id in your system
+        user_id = interactorAddress
+        
         validator = ContentValidator()
+        
+        # First, get the post points before deletion
+        post_points = validator.get_post_points(post_id, user_id)
+        
+        # Delete the post
         success = validator.delete_post(post_id, user_id)
         validator.close()
         
         if success:
+            # Deduct the points that were awarded for this post
+            if post_points > 0 and engine:
+                engine.deduct_post_points(user_id, post_points)
+            
             return JSONResponse(
                 status_code=200,
                 content={
                     "status": "success",
-                    "message": f"Post {post_id} deleted successfully",
+                    "message": f"Post {post_id} deleted and {post_points} points deducted",
                     "post_id": post_id,
-                    "user_id": user_id
+                    "interactorAddress": interactorAddress,
+                    "points_deducted": post_points
                 }
             )
         else:
@@ -429,9 +444,9 @@ async def delete_post(
                 status_code=404,
                 content={
                     "status": "error",
-                    "message": f"Post {post_id} not found or doesn't belong to user {user_id}",
+                    "message": f"Post {post_id} not found or doesn't belong to user",
                     "post_id": post_id,
-                    "user_id": user_id
+                    "interactorAddress": interactorAddress
                 }
             )
             
